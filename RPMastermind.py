@@ -640,10 +640,10 @@ async def on_message(message):
                 dm_tracker[message.author.id]["currentfield"] = 1
                 return
             if current_field == 1:
-                result = commit_sql("UPDATE CharacterProfiles SET UserId=%s WHERE Id=%s;",(str(message.content), str(field_dict[0])))
+                result = await commit_sql("""UPDATE CharacterProfiles SET UserId=%s WHERE Id=%s;""",(message.content, field_dict[0]))
                 if result:
                     await direct_message(message, "Character owner updated.")
-                    await dm_tracker[message.author.id]["commandchannel"].send("Character ID " + field_dict[0] + " updated to be owned by <@" + str(message.content) + ">")
+                    await dm_tracker[message.author.id]["commandchannel"].send("Character ID " + field_dict[0] + " updated to be owned by <@" + message.content + ">")
                 else:
                     await direct_message("Database error!")
             
