@@ -443,6 +443,35 @@ async def on_message(message):
                 response = "Please reply with the ID of the item to add, or **end** to commit the item list.\n\n" + menu
                 await direct_message(message, response)
                 return
+        elif current_command == 'newarmory' and message.content != 'end':
+            if current_field == 0:
+                menu = await make_simple_menu(message, "Armaments", "ArmamentName")
+                await direct_message(message, "Armory now named " + message.content + ". Please enter the ID of each item as a single reply until you have added all items the armory should sell, then type **end** to commit.\n\n" + menu)
+                dm_tracker[message.author.id]["currentfield"] = 1
+                dm_tracker[message.author.id]["fielddict"].append(message.content)
+                dm_tracker[message.author.id]["fielddict"].append(" ")
+                return
+            else:
+                dm_tracker[message.author.id]["fielddict"][1] = str(dm_tracker[message.author.id]["fielddict"][1]) + message.content + ", "
+                menu = await make_simple_menu(message, "Armaments", "ArmamentName")
+                response = "Please reply with the ID of the item to add, or **end** to commit the item list.\n\n" + menu
+                await direct_message(message, response)
+                return
+                
+        elif current_command == 'addarmoryitem' and message.content != 'end':
+            if current_field == 0:
+                menu = await make_simple_menu(message, "Armaments", "ArmamentName")
+                await direct_message(message, "Please enter the ID of each item as a single reply until you have added all items the armory should sell, then type **end** to commit.\n\n" + menu)
+                dm_tracker[message.author.id]["currentfield"] = 1
+                dm_tracker[message.author.id]["fielddict"].append(message.content)
+                dm_tracker[message.author.id]["fielddict"].append(" ")
+                return
+            else:
+                dm_tracker[message.author.id]["fielddict"][1] = str(dm_tracker[message.author.id]["fielddict"][1]) + message.content + ", "
+                menu = await make_simple_menu(message, "Armaments", "ArmamentName")
+                response = "Please reply with the ID of the item to add, or **end** to commit the item list.\n\n" + menu
+                await direct_message(message, response)
+                return                
         elif current_command == 'resetserver':
             if message.content != 'CONFIRM':
                 await direct_message(message, "Server reset canceled.")
@@ -498,6 +527,39 @@ async def on_message(message):
                     await direct_message(message, "Item deleted from vendor successfully.")
                     await dm_tracker[message.author.id]["commandchannel"].send(">>> Item deleted from vendor successfully.")
                 return
+        elif current_command == 'deletearmoryitem':
+            if current_field == 0:
+                dm_tracker[message.author.id]["fielddict"].append(message.content)
+                records = await select_sql("""SELECT ItemList,ArmamentName FROM Armory WHERE Id=%s;""", (message.content,))
+                if not records:
+                    await reply_message(message, "No armory found by that ID!")
+                    return
+                for row in records:
+                    items = row[0]
+                    armory_name = row[1]
+                response = "**ITEMS FOR VENDOR " + message.content + "**\n\n"   
+                item_list = items.split(',')
+                for item in item_list:
+                    item_record = await select_sql("""SELECT ArmamentName FROM Armaments WHERE Id=%s""",(item,))
+                    for item_name in item_record:
+                        response = response + item_name[0] + "\n"
+                menu = "Type the ID of the item you'd like to delete from this armory in a reply below.\n\n"
+                await direct_message(message, menu + response)
+                dm_tracker[message.author.id]["currentfield"] = 1
+                return
+            elif current_field == 1:
+                records = await select_sql("""SELECT ItemList,ArmamentName FROM Armory WHERE Id=%s;""", (field_dict[0],))
+                if not records:
+                    await reply_message(message, "No armory found by that ID!")
+                    return
+                for row in records:
+                    items = row[0]
+                    armory_name = row[1]    
+                items = items.replace(message.content + ",","")
+                result = await commit_sql("UPDATE Armory SET ItemList=%s WHERE Id=%s",(items, field_dict[0]))
+                if result:
+                    await direct_message(message, "Item deleted from armory successfully.")
+                    await dm_tracker[message.author.id]["commandchannel"].send(">>> Item deleted from armory successfully.")                
         elif current_command == 'approvechar':
             unapproved_char_id = message.content
             records = await select_sql("""SELECT CharacterName,UserId FROM UnapprovedCharacterProfiles WHERE Id=%s""", (message.content,))
@@ -593,6 +655,24 @@ async def on_message(message):
                 server_party_chars[server_id][user_id]["CharId"] = int(row[12])
                 server_party_chars[server_id][user_id]["Currency"] = float(row[14])
                 char_name = row[13]
+            records = await select_sql("""SELECT IFNULL(HeadId,'None'),IFNULL(ChestId,'None'),IFNULL(LeftHandId,'None'),IFNULL(RightHandId,'None'),IFNULL(FeetId,'None') FROM CharacterArmaments WHERE CharacterId=%s;""",(str(server_party_chars[server_id][user_id]["CharId"]),))
+            if records:
+                for row in records:
+                    for x in range(0,len(row)):
+                        item = row[x]
+                        if item != 'None':
+                            arm_records = await select_sql("""SELECT MinimumLevel,Defense,StatMod,Modifier FROM Armaments WHERE Id=%s;""", (str(item),))
+                            for arm_row in arm_records:
+                                if int(arm_row[0]) < server_party_chars[server_id][user_id]["Level"]:
+                                    if int(arm_row[1]) > 0:
+                                        server_party_chars[server_id][user_id]["Defense"] = server_party_chars[server_id][user_id]["Defense"] + int(arm_row[1])
+                                        await log_message("applying defense!")
+                                    if re.search(r"Attack|MagicAttack|Agility",arm_row[2]):
+                                        server_party_chars[server_id][user_id][arm_row[2]] = server_party_chars[server_id][user_id][arm_row[2]] + int(arm_row[3])
+                                        await log_message("applying " + arm_row[3] + " to " + arm_row[2])
+
+                                  
+                    
             await dm_tracker[message.author.id]["commandchannel"].send(">>> " + message.author.name + " successfully set party character to " + char_name + ".")        
             await direct_message(message,"You successfully set your party character to " + char_name + ".")
             return
@@ -662,7 +742,119 @@ async def on_message(message):
                 await direct_message(message, "You have granted " + char_name + " " + message.content + " points to spend.")
                 await dm_tracker[message.author.id]["commandchannel"].send(">>> " + char_name + ", played by <@" + str(char_user) + ">, has been granted " + message.content + " stat points to spend!")
                 return
-                    
+        elif current_command == 'equiparmament':
+            if current_field == 0:
+                dm_tracker[message.author.id]["fielddict"].append(message.content)
+                menu = await make_menu(message, "ArmamentInventory","Armaments","ArmamentId","CharacterId","ArmamentName",message.content)
+                response = "Select an armament from your inventory to equip by replying with the ID below:\n\n" + menu
+                await direct_message(message, response)
+                dm_tracker[message.author.id]["currentfield"] = 1
+                return
+            if current_field == 1:
+                dm_tracker[message.author.id]["fielddict"].append(message.content)
+                response = "Please select a slot for this item (Head, Left Hand, Right Hand, Chest, Feet):\n\n"
+                await direct_message(message,response)
+                dm_tracker[message.author.id]["currentfield"] = 2
+                return
+            if current_field == 2:
+                dm_tracker[message.author.id]["fielddict"].append(message.content.replace(' ',''))
+                target_slot = message.content.replace(' ','') + "Id"
+                records = await select_sql("""SELECT ArmamentName,Slot,MinimumLevel FROM Armaments WHERE Id=%s""",(field_dict[1],))
+                for row in records:
+                        arm_name = row[0]
+                        slot = row[1]
+                        minimumlevel = row[2]
+                records = await select_sql("""SELECT CharacterName,Level FROM CharacterProfiles WHERE Id=%s""", (field_dict[0],))
+                for row in records:
+                        char_name = row[0]
+                        level = row[1]
+                records = await select_sql("""SELECT IFNULL(""" + target_slot + """,'None') FROM CharacterArmaments WHERE CharacterId=%s;""", (field_dict[0],))
+                for row in records:
+                    char_slot = row[0]
+                try: char_slot
+                except: 
+                    char_slot = 'None'
+                    result = await commit_sql("""INSERT INTO CharacterArmaments (ServerId,UserId,CharacterId, HeadId, LeftHandId, RightHandId, ChestId, FeetId) VALUES (%s, %s, %s, NULL, NULL, NULL, NULL, NULL);""",(str(dm_tracker[message.author.id]["server_id"]), str(message.author.id), field_dict[0]))
+                    if not result:
+                        await direct_message(message, "Database error!")
+                        return
+                if int(level) < int(minimumlevel):
+                    await direct_message(message, char_name + " isn't a high enough level to equip this armament!")
+                    return
+                if char_slot != 'None' and int(char_slot) != 0:
+                    await direct_message(message, "You already have an armament equipped in this slot!")
+                    return
+                if (slot == 'Hand' and 'Hand' not in target_slot) and (slot != target_slot):
+                    await direct_message(message, "This armament does not go in this slot!")
+                    return
+
+ 
+                result = await commit_sql("""UPDATE CharacterArmaments SET """ + target_slot + """=%s WHERE CharacterId=%s""",(field_dict[1],field_dict[0]))
+                if result:
+                    await direct_message(message, char_name + " now has equipped " + arm_name +" in the " + message.content)
+                    await dm_tracker[message.author.id]["commandchannel"].send(">>> " + char_name + " now has equipped " + arm_name +" in the " + message.content)
+                else:
+                    await direct_message(mesage, "Database error!")
+                return
+        elif current_command == 'unequiparmament':
+            if current_field == 0:
+                dm_tracker[message.author.id]["fielddict"].append(message.content)
+                records = await select_sql("""SELECT IFNULL(HeadId,'0'), IFNULL(LeftHandId,'0'), IFNULL(RightHandId,'0'), IFNULL(ChestId,'0'), IFNULL(FeetId,'0') FROM CharacterArmaments WHERE CharacterId=%s;""",(message.content,))
+                for row in records:
+                    head_id = row[0]
+                    left_id = row[1]
+                    right_id = row[2]
+                    chest_id = row[3]
+                    feet_id = row[4]
+                if not records:
+                    await direct_message(message, "This character has nothing equipped!")
+                    return
+                records = await select_sql("""SELECT ArmamentName FROM Armaments WHERE Id=%s;""", (head_id,))
+                for row in records:
+                    head_name = row[0]
+                try: head_name
+                except: head_name = "None"
+                records = await select_sql("""SELECT ArmamentName FROM Armaments WHERE Id=%s;""", (left_id,))
+                for row in records:
+                    left_name = row[0]
+                try: left_name
+                except: left_name = "None"
+                records = await select_sql("""SELECT ArmamentName FROM Armaments WHERE Id=%s;""", (right_id,))
+                for row in records:
+                    right_name = row[0]
+                try: right_name
+                except: right_name = "None"
+                records = await select_sql("""SELECT ArmamentName FROM Armaments WHERE Id=%s;""", (chest_id,))
+                for row in records:
+                    chest_name = row[0]
+                try: chest_name
+                except: chest_name = "None"
+                records = await select_sql("""SELECT ArmamentName FROM Armaments WHERE Id=%s;""", (feet_id,))
+                for row in records:
+                    feet_name = row[0]
+                try: feet_name
+                except: feet_name = "None"
+
+                menu = "Current Armaments Equipped\n\nHead: **" +head_id + "** - " + head_name + "\nLeftHand: **" + left_id + "** - " + left_name + "\nRightHand: **" + right_id +  "** - " + right_name + "\nChest: **" + chest_id + "** - " + chest_name + "\nFeet: **" + feet_id + "** - " + feet_name +"\n"
+
+                response = "Select an armament from your inventory to unequip by replying with the slot below:\n\n" + menu
+                await direct_message(message, response)
+                dm_tracker[message.author.id]["currentfield"] = 1
+                return
+            if current_field == 1:
+                dm_tracker[message.author.id]["fielddict"].append(message.content)
+                if not re.search(r"Hand|Feet|Chest|Head",message.content):
+                    await direct_message(message, "Invalid slot for armaments! Please try again.")
+                    return
+
+                result = await commit_sql("""UPDATE CharacterArmaments SET """ + message.content + "Id=%s WHERE CharacterId=%s;",('0',field_dict[0]))
+                if result:
+                    await direct_message(message, "Unequipped the " + message.content + " slot.")
+                    await dm_tracker[message.author.id]["commandchannel"].send(">>> Unequipped " + message.content + " slot.")
+                else:
+                    await direct_message(message, "Database error!")
+                return
+                      
         elif current_command == 'trade':
             if current_field == 0:
                 dm_tracker[message.author.id]["fielddict"].append(message.content)
@@ -727,8 +919,112 @@ async def on_message(message):
                     await reply_message(message, "You don't own this item!")
                 await initialize_dm(message.author.id)    
                 return            
-
+        elif current_command == 'tradearms':
+            if current_field == 0:
+                dm_tracker[message.author.id]["fielddict"].append(message.content)
+                menu = await make_menu(message, "ArmamentInventory", "Armaments","ArmamentId", "CharacterId", "ArmamentName", dm_tracker[message.author.id]["fielddict"][0])
+                if not menu:
+                    await direct_message(message, "You don't have any items for this character!")
+                    return
+                    
+                response = "**YOUR INVENTORY**\n\n" + menu
+                await direct_message(message, "Select an armament to trade:\n\n" + response)
+                dm_tracker[message.author.id]["currentfield"] = 1
+                return
+            elif dm_tracker[message.author.id]["currentfield"] == 1:
+                dm_tracker[message.author.id]["fielddict"].append(message.content)
+                menu = await make_simple_menu(message, "CharacterProfiles", "CharacterName")
+                response = "Please select a chraacter to trade the item to.\n\n" + menu
+                
+                await direct_message(message, response)
+                dm_tracker[message.author.id]["currentfield"] = 2
+                return            
+            elif dm_tracker[message.author.id]["currentfield"] == 2:
             
+                dm_tracker[message.author.id]["fielddict"].append(message.content)
+                item_id = message.content
+                records = await select_sql("""SELECT ArmamentName,ArmamentCost FROM Armaments WHERE Id=%s""", (dm_tracker[message.author.id]["fielddict"][1],))
+                
+                if not records:
+                    await reply_message(message, "No item found by that ID!")
+                    return
+                for row in records:
+                    equip_name = row[0]
+                    cost = float(row[1])
+                records = await select_sql("""SELECT CharacterName,UserId,Currency FROM CharacterProfiles WHERE Id=%s;""",( dm_tracker[message.author.id]["fielddict"][0],))
+                if not records:
+                    await reply_message(message, "No character found by that name!")
+                    return
+                for row in records:
+                    char_name = row[0]
+                    user_id = int(row[1])
+                    currency = float(row[2])
+                if user_id != message.author.id:
+                    await reply_message(message, "This isn't your character!")
+                    return
+                records = await select_sql("""SELECT CharacterName,UserId FROM CharacterProfiles WHERE Id=%s;""", (dm_tracker[message.author.id]["fielddict"][2],))
+                if not records:
+                    await direct_message(message, "No character exists by that target ID!")
+                    return
+                for row in records:
+                    target_name = row[0]
+                    target_user = row[1]
+                    
+                result = await commit_sql("""DELETE FROM ArmamentInventory WHERE ServerId=%s AND UserId=%s AND CharacterId=%s AND ArmamentId=%s;""",(str(dm_tracker[message.author.id]["server_id"]), str(message.author.id), dm_tracker[message.author.id]["fielddict"][0], item_id))
+                if result:
+
+                    result_2 = await commit_sql("""INSERT INTO ArmamentInventory (ServerId,UserId,CharacterId ,ArmamentId) VALUES (%s, %s, %s, %s);""", (str(dm_tracker[message.author.id]["server_id"]), str(target_user), str(dm_tracker[message.author.id]["fielddict"][2]), dm_tracker[message.author.id]["fielddict"][1]))
+                    if not result_2:
+                        await direct_message(message, "Database error!")
+                        return
+                    await direct_message(message, char_name + " traded " + equip_name + " to " + target_name + " with mun of <@" + str(target_user) + ">.")
+                    await dm_tracker[message.author.id]["commandchannel"].send(">>> " + char_name + " traded " + equip_name + " to " + target_name + " with mun of <@" + str(target_user) + ">.")                        
+                else:
+                    await reply_message(message, "You don't own this item!")
+                await initialize_dm(message.author.id)    
+                return            
+        elif current_command == 'giveitem':
+            if current_field == 0:
+                dm_tracker[message.author.id]["fielddict"].append(message.content)
+                menu = await make_simple_menu(message, "Equipment", "EquipmentName")
+                response = "Select an item to give to the character by replying to the DM with the ID of the item:\n\n"
+                await direct_message(message, response + menu)
+                dm_tracker[message.author.id]["currentfield"] = 1
+                return
+            if current_field == 1:
+                records = await select_sql("""SELECT CharacterName FROM CharacterProfiles WHERE Id=%s""",(str(dm_tracker[message.author.id]["fielddict"][0]),))
+                for row in records:
+                    char_name = row[0]  
+                records = await select_sql("""SELECT ArmamentName FROM Armaments WHERE Id=%s""",(str(message.content),))
+                for row in records:
+                    item_name = row[0]
+                result = await commit_sql("""INSERT INTO Inventory (ServerId, UserId, CharacterId, EquipmentId) VALUES (%s, %s, %s, %s);""", (str(dm_tracker[message.author.id]["server_id"]), str(message.author.id), dm_tracker[message.author.id]["fielddict"][0], message.content))
+                if result:
+                    await reply_message(message, char_name + " can now use the item " + item_name + "!")
+                    await dm_tracker[message.author.id]["commandchannel"].send(">>> " + char_name + " can now use the item " + item_name + "!")
+                else:
+                    await reply_message(message, "Database error!") 
+        elif current_command == 'givearmament':
+            if current_field == 0:
+                dm_tracker[message.author.id]["fielddict"].append(message.content)
+                menu = await make_simple_menu(message, "Armaments", "ArmamentName")
+                response = "Select an armament to give to the character by replying to the DM with the ID of the armament:\n\n"
+                await direct_message(message, response + menu)
+                dm_tracker[message.author.id]["currentfield"] = 1
+                return
+            if current_field == 1:
+                records = await select_sql("""SELECT CharacterName FROM CharacterProfiles WHERE Id=%s""",(str(dm_tracker[message.author.id]["fielddict"][0]),))
+                for row in records:
+                    char_name = row[0]
+                records = await select_sql("""SELECT ArmamentName FROM Armaments WHERE Id=%s""",(str(message.content),))
+                for row in records:
+                    item_name = row[0]
+                result = await commit_sql("""INSERT INTO ArmamentInventory (ServerId, UserId, CharacterId, ArmamentId) VALUES (%s, %s, %s, %s);""", (str(dm_tracker[message.author.id]["server_id"]), str(message.author.id), dm_tracker[message.author.id]["fielddict"][0], message.content))
+                if result:
+                    await reply_message(message, char_name + " can now use the armament " + item_name + "!")
+                    await dm_tracker[message.author.id]["commandchannel"].send(">>> " + char_name + " can now use the armament " + item_name + "!")
+                else:
+                    await reply_message(message, "Database error!") 
         elif current_command == 'givespell':
             if current_field == 0:
                 dm_tracker[message.author.id]["fielddict"].append(message.content)
@@ -964,9 +1260,169 @@ async def on_message(message):
                 mass_spar_chars[server_id][user_id]["CharId"] = int(row[12])
                 mass_spar_chars[server_id][user_id]["TotalDamage"] = 0
                 char_name = row[13]
+            records = await select_sql("""SELECT IFNULL(HeadId,'None'),IFNULL(ChestId,'None'),IFNULL(LeftHandId,'None'),IFNULL(RightHandId,'None'),IFNULL(FeetId,'None') FROM CharacterArmaments WHERE CharacterId=%s;""",(str(mass_spar_chars[server_id][user_id]["CharId"]),))
+            if records:
+                for row in records:
+                    for x in range(0,len(row)):
+                        item = row[x]
+                        if item != 'None':
+                            arm_records = await select_sql("""SELECT MinimumLevel,Defense,StatMod,Modifier FROM Armaments WHERE Id=%s;""", (str(item),))
+                            for arm_row in arm_records:
+                                if int(arm_row[0]) < server_party_chars[server_id][user_id]["Level"]:
+                                    if int(arm_row[1]) > 0:
+                                        mass_spar_chars[server_id][user_id]["Defense"] = mass_spar_chars[server_id][user_id]["Defense"] + int(arm_row[1])
+                                        await log_message("applying defense!")
+                                    if re.search(r"Attack|MagicAttack|Agility",arm_row[2]):
+                                        mass_spar_chars[server_id][user_id][arm_row[2]] = mass_spar_chars[server_id][user_id][arm_row[2]] + int(arm_row[3])
+                                        await log_message("applying " + arm_row[3] + " to " + arm_row[2])
             await dm_tracker[message.author.id]["commandchannel"].send(">>> " + message.author.name + " successfully set party character to " + char_name + ".")
             await direct_message(message, "You successfully set your spar character to " + char_name)
             await initialize_dm(message.author.id)
+            return
+        elif current_command == 'weaponspar':
+            if dm_tracker[message.author.id]["currentfield"] == 0:
+                char_map = {} 
+                dm_tracker[message.author.id]["fielddict"].append(message.content)
+                response = "Select a target:\n\n"
+                for character in mass_spar_chars[server_id]:
+                    char_name = mass_spar_chars[server_id][character]["CharName"]
+                    char_id = mass_spar_chars[server_id][character]["CharId"]
+                    char_map[char_id] = character
+                    response = response + "**" + str(char_id) + "** - " + char_name + "\n"
+                await direct_message(message, response)
+                dm_tracker[message.author.id]["currentfield"] = 1
+                dm_tracker[message.author.id]["parameters"] =  char_map               
+                return            
+            elif dm_tracker[message.author.id]["currentfield"] == 1:
+                user_id = message.author.id
+                target_id = dm_tracker[message.author.id]["parameters"][int(message.content)]
+            records = await select_sql("""SELECT Id,ArmamentName,MinimumLevel,DamageMin,DamageMax FROM Armaments WHERE Id=%s;""",(field_dict[0],))
+            if not records:
+                await reply_message(message, "That's not a armament. Try again.")
+                return
+            else:
+                for row in records:
+                    arm_id = row[0]
+                    arm_name = row[1]
+                    min_level = int(row[2])
+                    damage_min = int(row[3])
+                    damage_max = int(row[4])
+                if (min_level > mass_spar_chars[server_id][user_id]["Level"]):
+                    await direct_message(message, "You're not a high enough level for this armament. How did you even get it?")
+                    return
+                await direct_message(message, "Attacking with " + arm_name)
+                await dm_tracker[message.author.id]["commandchannel"].send(">>> " + str(mass_spar_chars[server_id][user_id]["CharName"]) + " attacks " + str(mass_spar_chars[server_id][target_id]["CharName"]) + " with " + arm_name + "!\n")
+                dodge = await calculate_dodge(mass_spar_chars[server_id][user_id]["Level"], mass_spar_chars[server_id][user_id]["Agility"])
+                if dodge:
+                    await reply_message(message, mass_spar_chars[server_id][target_id]["CharName"] + " dodged the attack! No damage taken!")
+                else:
+                    damage = await calculate_damage(random.randint(damage_min, damage_max), mass_spar_chars[server_id][target_id]["Defense"], 1, mass_spar_chars[server_id][user_id]["Level"], mass_spar_chars[server_id][target_id]["Level"])
+                    mass_spar_chars[server_id][target_id]["Health"] = mass_spar_chars[server_id][target_id]["Health"] - damage
+                    mass_spar_chars[server_id][user_id]["TotalDamage"] = mass_spar_chars[server_id][user_id]["TotalDamage"] + damage
+                    await dm_tracker[message.author.id]["commandchannel"].send(">>> " + mass_spar_chars[server_id][target_id]["CharName"] + " was hit by " + mass_spar_chars[server_id][user_id]["CharName"] + " for " + str(damage) + " points!\n\nHealth now at " + str(mass_spar_chars[server_id][target_id]["Health"]))
+                    if mass_spar_chars[server_id][target_id]["Health"] < 1:
+                        
+                        await reply_message(message, mass_spar_chars[server_id][target_id]["CharName"] + " has no health left and is out of the fight!")
+                        
+
+                        fallen_chars[dm_tracker[message.author.id]["server_id"]][target_id] = {} 
+                        fallen_chars[dm_tracker[message.author.id]["server_id"]][target_id] = mass_spar_chars[server_id][target_id]
+                        del mass_spar_chars[server_id][target_id]
+
+                if len(mass_spar_chars[server_id]) < 2:
+                    response = "<@" + str(message.author.id) + "> is the last one standing and is the spar winner!\n\n**Experience gained:**\n\n"
+                    fallen_chars[dm_tracker[message.author.id]["server_id"]][message.author.id] = {} 
+                    fallen_chars[dm_tracker[message.author.id]["server_id"]][message.author.id] = mass_spar_chars[server_id][message.author.id]
+                    for char in fallen_chars[dm_tracker[message.author.id]["server_id"]].keys():
+                    
+                        char_id = fallen_chars[server_id][char]["CharId"]
+                        await log_message("Level " + str(fallen_chars[server_id][char]["Level"]))
+                        new_xp = await calculate_xp(fallen_chars[server_id][char]["Level"], fallen_chars[server_id][char]["Level"], fallen_chars[server_id][char]["TotalDamage"], 1) * 2
+                        response = response + "*" + fallen_chars[server_id][char]["CharName"] + "*: " + str(new_xp) + "\n"
+                        records = await select_sql("""SELECT Experience FROM CharacterProfiles WHERE Id=%s;""", (str(fallen_chars[server_id][char]["CharId"]),))
+                        for row in records:
+                            old_xp = int(row[0])
+                        total_xp = old_xp + new_xp
+                        if total_xp > (guild_settings[server_id]["XPLevelRatio"] * fallen_chars[server_id][char]["Level"]):
+                            fallen_chars[server_id][char]["Level"] = fallen_chars[server_id][char]["Level"] + 1
+                            available_points[server_id][char] = int(fallen_chars[server_id][char]["Level"] / 2)
+                            response = response + "**" + fallen_chars[server_id][char]["CharName"] + "** LEVELED UP TO LEVEL **" + str(fallen_chars[server_id][char]["Level"]) + "!**\nYou have " + str(int(fallen_chars[server_id][char]["Level"]/2)) + " stat points to spend!"
+                            total_xp = 0
+                            health = fallen_chars[server_id][user_id]["Level"] * guild_settings[server_id]["HealthLevelRatio"]
+                            stamina = fallen_chars[server_id][user_id]["Level"] * guild_settings[server_id]["StaminaLevelRatio"]
+                            mana = fallen_chars[server_id][user_id]["Level"] * guild_settings[server_id]["ManaLevelRatio"]
+                        result = await commit_sql("""UPDATE CharacterProfiles SET Level=%s,Experience=%s,Health=%s,Stamina=%s,Mana=%s WHERE Id=%s;""",(str(fallen_chars[server_id][target_id]["Level"]),str(total_xp),str(health), str(stamina), str(mana), str(fallen_chars[server_id][target_id]["CharId"])))
+                    mass_spar_event[server_id] = False
+                    await dm_tracker[message.author.id]["commandchannel"].send(">>> " + response)
+                    return
+                            
+                if mass_spar_turn[server_id] > len(mass_spar_chars[server_id]) - 2:
+                    mass_spar_turn[server_id] = 0
+                else:
+                    mass_spar_turn[server_id] = mass_spar_turn[server_id] + 1
+                await dm_tracker[message.author.id]["commandchannel"].send(">>> <@" + str(list(mass_spar[server_id])[mass_spar_turn[server_id]].id) + ">, it is your turn!")
+            await initialize_dm(message.author.id)    
+            return
+        elif current_command == 'weaponmonster':
+            user_id = message.author.id
+            server_id = dm_tracker[message.author.id]["server_id"]        
+            records = await select_sql("""SELECT Id,ArmamentName,MinimumLevel,DamageMin,DamageMax FROM Armaments WHERE Id=%s;""",(message.content,))
+            if not records:
+                await reply_message(message, "That's not a armament. Try again.")
+                return
+            else:
+                for row in records:
+                    arm_id = row[0]
+                    arm_name = row[1]
+                    min_level = int(row[2])
+                    damage_min = int(row[3])
+                    damage_max = int(row[4])
+                if (min_level > server_party_chars[server_id][user_id]["Level"]):
+                    await direct_message(message, "You're not a high enough level for this armament. How did you even get it?")
+                    return
+            await direct_message(message, "Attacking the monster with " + arm_name + ".")
+            await dm_tracker[message.author.id]["commandchannel"].send(">>> " + str(server_party_chars[server_id][user_id]["CharName"]) + " attacks " + str(server_monsters[server_id]["MonsterName"]) + " with " + arm_name + "!")                   
+            dodge = await calculate_dodge(server_monsters[server_id]["Level"], server_party_chars[server_id][user_id]["Agility"])
+            if dodge:
+                await dm_tracker[message.author.id]["commandchannel"].send(">>> " + server_monsters[server_id]["MonsterName"] + " dodged the attack! No damage taken!")
+            else:
+                damage = await calculate_damage(random.randint(damage_min, damage_max), server_monsters[server_id]["Defense"], 1, server_party_chars[server_id][user_id]["Level"], server_monsters[server_id]["Level"])
+                server_monsters[server_id]["Health"] = int(server_monsters[server_id]["Health"] - damage)
+                await dm_tracker[message.author.id]["commandchannel"].send(">>> " + server_monsters[server_id]["MonsterName"] + " was hit by " + server_party_chars[server_id][user_id]["CharName"] + " for " + str(damage) + " points!\n\nHealth now at " + str(server_monsters[server_id]["Health"]))
+                if server_monsters[server_id]["Health"] < 1:
+                    await dm_tracker[message.author.id]["commandchannel"].send(">>> " + server_monsters[server_id]["MonsterName"] + " has no health left and is out of the fight!")
+                    currency_earned = random.randint(1, server_monsters[dm_tracker[message.author.id]["server_id"]]["MaxCurrencyDrop"]) / len(server_party)
+                    server_encounters[server_id] = False
+                    await dm_tracker[message.author.id]["commandchannel"].send(">>> Victory!")
+                    response = "**Experience gained:**\n\n"
+                    for user in server_party_chars[server_id].keys():
+                        char_id = server_party_chars[server_id][user]["CharId"]
+                        await log_message("Level " + str(server_party_chars[server_id][user]["Level"]))
+                        new_xp = await calculate_xp(server_party_chars[server_id][user]["Level"], server_monsters[server_id]["Level"], monster_health[server_id], len(server_party_chars[server_id]))
+                        response = response + "*" + server_party_chars[server_id][user]["CharName"] + "*: " + str(new_xp) + "\n"
+                        records = await select_sql("""SELECT Experience FROM CharacterProfiles WHERE Id=%s;""", (str(server_party_chars[server_id][user]["CharId"]),))
+                        for row in records:
+                            old_xp = int(row[0])
+                        total_xp = int(old_xp + new_xp)
+                        response = response + "Currency earned: " + str(currency_earned) + "\n"
+                        if total_xp > (guild_settings[server_id]["XPLevelRatio"] * server_party_chars[server_id][user]["Level"]):
+                            server_party_chars[server_id][user]["Level"] = server_party_chars[server_id][user]["Level"] + 1
+                            available_points[server_id][user] = int(server_party_chars[server_id][user]["Level"] / 2)
+                            response = response + "**" + server_party_chars[server_id][user]["CharName"] + "** LEVELED UP TO LEVEL **" + str(server_party_chars[server_id][user]["Level"]) + "!**\nYou have " + str(int(server_party_chars[server_id][user]["Level"]/2)) + " stat points to spend!"
+                            total_xp = 0
+                            health = server_party_chars[server_id][user_id]["Level"] * guild_settings[server_id]["HealthLevelRatio"]
+                            stamina = server_party_chars[server_id][user_id]["Level"] * guild_settings[server_id]["StaminaLevelRatio"]
+                            mana = server_party_chars[server_id][user_id]["Level"] * guild_settings[server_id]["ManaLevelRatio"]
+                            result = await commit_sql("""UPDATE CharacterProfiles SET Level=%s,Experience=%s,Health=%s,Stamina=%s,Mana=%s WHERE Id=%s;""",(str(server_party_chars[server_id][user]["Level"]),str(total_xp),str(health), str(stamina), str(mana), str(server_party_chars[server_id][user]["CharId"])))
+                        else:
+                            result = await commit_sql("""UPDATE CharacterProfiles SET Level=%s,Experience=%s WHERE Id=%s;""",(str(server_party_chars[server_id][user]["Level"]),str(total_xp), str(server_party_chars[server_id][user]["CharId"])))
+                    await dm_tracker[message.author.id]["commandchannel"].send(">>> " + response)
+                    return
+            if encounter_turn[server_id] > len(server_party[server_id]) - 2:
+                encounter_turn[server_id] = 0
+            else:
+                encounter_turn[server_id] = encounter_turn[server_id] + 1
+            await dm_tracker[message.author.id]["commandchannel"].send(">>> <@" + str(list(server_party[server_id])[encounter_turn[server_id]].id) + ">, it is your turn!")
             return
         elif current_command == 'meleemonster':
             user_id = message.author.id
@@ -1003,8 +1459,8 @@ async def on_message(message):
                 server_monsters[server_id]["Health"] = int(server_monsters[server_id]["Health"] - damage)
                 await dm_tracker[message.author.id]["commandchannel"].send(">>> " + server_monsters[server_id]["MonsterName"] + " was hit by " + server_party_chars[server_id][user_id]["CharName"] + " for " + str(damage) + " points!\n\nHealth now at " + str(server_monsters[server_id]["Health"]))
                 if server_monsters[server_id]["Health"] < 1:
-                    dm_tracker[message.author.id]["commandchannel"].send(">>> " + server_monsters[server_id]["MonsterName"] + " has no health left and is out of the fight!")
-                    currency_earned = random.randint(1, server_monsters[message.guild.id]["MaxCurrencyDrop"]) / len(server_party)
+                    await dm_tracker[message.author.id]["commandchannel"].send(">>> " + server_monsters[server_id]["MonsterName"] + " has no health left and is out of the fight!")
+                    currency_earned = random.randint(1, server_monsters[server_id]["MaxCurrencyDrop"]) / len(server_party)
                     server_encounters[server_id] = False
                     await dm_tracker[message.author.id]["commandchannel"].send(">>> Victory!")
                     response = "**Experience gained:**\n\n"
@@ -1021,7 +1477,7 @@ async def on_message(message):
                         if total_xp > (guild_settings[server_id]["XPLevelRatio"] * server_party_chars[server_id][user]["Level"]):
                             server_party_chars[server_id][user]["Level"] = server_party_chars[server_id][user]["Level"] + 1
                             available_points[server_id][user] = int(server_party_chars[server_id][user]["Level"] / 2)
-                            response = response + "**" + server_party_chars[server_id][user]["CharName"] + "** LEVELED UP TO LEVEL **" + str(server_party_chars[server_id][user]["Level"]) + "!**\nYou have " + str(int(level/2)) + " stat points to spend!"
+                            response = response + "**" + server_party_chars[server_id][user]["CharName"] + "** LEVELED UP TO LEVEL **" + str(server_party_chars[server_id][user]["Level"]) + "!**\nYou have " + str(int(server_party_chars[server_id][user]["Level"]/2)) + " stat points to spend!"
                             total_xp = 0
                             health = server_party_chars[server_id][user_id]["Level"] * guild_settings[server_id]["HealthLevelRatio"]
                             stamina = server_party_chars[server_id][user_id]["Level"] * guild_settings[server_id]["StaminaLevelRatio"]
@@ -1078,7 +1534,7 @@ async def on_message(message):
                     
                     server_encounters[server_id] = False
                     currency_earned = random.randint(1, server_monsters[server_id]["MaxCurrencyDrop"]) / len(server_party)
-                    dm_tracker[message.author.id]["commandchannel"].send(">>> Victory!")
+                    await dm_tracker[message.author.id]["commandchannel"].send(">>> Victory!")
                     response = "**Experience gained:**\n\n"
                     for user in server_party_chars[server_id].keys():
                         char_id = server_party_chars[server_id][user]["CharId"]
@@ -1148,12 +1604,13 @@ async def on_message(message):
                     await direct_message(message, "You do not have sufficient stamina for this melee. Try another melee or restore stamina!")
                     return
                 mass_spar_chars[server_id][user_id]["Stamina"] = mass_spar_chars[server_id][user_id]["Stamina"] - stamina_cost
+                await direct_message(message, "Attacking with " + parsed_string)
                 await dm_tracker[message.author.id]["commandchannel"].send(">>> " + str(mass_spar_chars[server_id][user_id]["CharName"]) + " attacks " + str(mass_spar_chars[server_id][target_id]["CharName"]) + " with " + parsed_string + "!\nThis drained " + str(stamina_cost) + " from " + mass_spar_chars[server_id][user_id]["CharName"] + ", leaving them with " + str(mass_spar_chars[server_id][user_id]["Stamina"]) + " stamina!")
                 dodge = await calculate_dodge(mass_spar_chars[server_id][user_id]["Level"], mass_spar_chars[server_id][user_id]["Agility"])
                 if dodge:
                     await reply_message(message, mass_spar_chars[server_id][target_id]["CharName"] + " dodged the attack! No damage taken!")
                 else:
-                    damage = await calculate_damage(mass_spar_chars[server_id][user_id]["MagicAttack"], mass_spar_chars[server_id][target_id]["Defense"], damage_multiplier, mass_spar_chars[server_id][user_id]["Level"], mass_spar_chars[server_id][target_id]["Level"])
+                    damage = await calculate_damage(mass_spar_chars[server_id][user_id]["Attack"], mass_spar_chars[server_id][target_id]["Defense"], damage_multiplier, mass_spar_chars[server_id][user_id]["Level"], mass_spar_chars[server_id][target_id]["Level"])
                     mass_spar_chars[server_id][target_id]["Health"] = mass_spar_chars[server_id][target_id]["Health"] - damage
                     mass_spar_chars[server_id][user_id]["TotalDamage"] = mass_spar_chars[server_id][user_id]["TotalDamage"] + damage
                     await dm_tracker[message.author.id]["commandchannel"].send(">>> " + mass_spar_chars[server_id][target_id]["CharName"] + " was hit by " + mass_spar_chars[server_id][user_id]["CharName"] + " for " + str(damage) + " points!\n\nHealth now at " + str(mass_spar_chars[server_id][target_id]["Health"]))
@@ -1240,6 +1697,7 @@ async def on_message(message):
                 if mass_spar_chars[server_id][user_id]["Mana"] < mana_cost:
                     await direct_message(message, "You do not have sufficient mana for this spell. Try another spell or restore mana!")
                     return
+                await direct_message(message, "Attacking with " + parsed_string)
                 mass_spar_chars[server_id][user_id]["Mana"] = mass_spar_chars[server_id][user_id]["Mana"] - mana_cost
                 await dm_tracker[message.author.id]["commandchannel"].send(">>> " + str(mass_spar_chars[server_id][user_id]["CharName"]) + " attacks " + str(mass_spar_chars[server_id][target_id]["CharName"]) + " with " + parsed_string + "!\nThis drained " + str(mana_cost) + " from " + mass_spar_chars[server_id][user_id]["CharName"] + ", leaving them with " + str(mass_spar_chars[server_id][user_id]["Mana"]) + " mana!")
                 dodge = await calculate_dodge(mass_spar_chars[server_id][user_id]["Level"], mass_spar_chars[server_id][user_id]["Agility"])
@@ -1364,6 +1822,74 @@ async def on_message(message):
                     await reply_message(message, "Database error!")            
                 await initialize_dm(message.author.id)
                 return
+        elif current_command == 'buyarms':
+            if dm_tracker[message.author.id]["currentfield"] == 0:
+                dm_tracker[message.author.id]["fielddict"].append(message.content)
+                menu = await make_simple_menu(message, "Armory","ArmoryName")
+                response = "Please select from the list of available armories by replying with the ID in bold.\n\n**VENDOR LIST**\n\n" + menu
+                dm_tracker[message.author.id]["currentfield"] = 1
+                await direct_message(message, response)
+                return
+            elif dm_tracker[message.author.id]["currentfield"] == 1:
+                dm_tracker[message.author.id]["fielddict"].append(message.content)
+                records = await select_sql("""SELECT ArmamentList FROM Armory WHERE Id=%s;""",(message.content,))
+                response  = "Select an armament from the armory by using the ID in bold in your reply.\n\n**ARMORY ITEMS**\n\n"
+                for row in records:
+                    item_list = row[0].split(',')
+                for item in item_list:
+                    item_record = await select_sql("SELECT ArmamentName,ArmamentCost FROM Armaments WHERE Id=%s;", (item,))
+                    for item_obj in item_record:
+                        response = response + "**" + item + "** - " + item_obj[0] + " - *" + str(item_obj[1]) + "*\n"
+                await direct_message(message, response)
+                dm_tracker[message.author.id]["currentfield"] = 2
+                return
+                        
+            
+            elif dm_tracker[message.author.id]["currentfield"] == 2:
+                dm_tracker[message.author.id]["fielddict"].append(message.content)
+                records = await select_sql("""SELECT ArmamentName,ArmamentCost FROM Armaments WHERE Id=%s;""", (dm_tracker[message.author.id]["fielddict"][2],))
+                
+                if not records:
+                    await direct_message(message, "No item found by that Id")
+                    return
+                for row in records:
+                    item_name = row[0]
+                    cost = float(row[1])
+                records = await select_sql("""SELECT UserId,Currency,CharacterName FROM CharacterProfiles WHERE Id=%s;""",(dm_tracker[message.author.id]["fielddict"][0],))
+                if not records:
+                    await direct_message(message, "No character found by that ID")
+                    return
+                for row in records:
+                    user_id = row[0]
+                    currency = float(row[1])
+                    char_name = row[2]
+                if int(user_id) != message.author.id:
+                    await direct_message(message, "This isn't your character!")
+                    return
+                if currency < cost:
+                    await direct_message(message, "You don't have enough money to buy this!")
+                    return
+                currency = currency - cost
+                records = await select_sql("""SELECT GuildBankBalance FROM GuildSettings WHERE ServerId=%s;""", (str(dm_tracker[message.author.id]["server_id"]),))
+                for row in records:
+                    balance = int(row[0])
+                new_bank = balance + cost
+                result2 = await commit_sql("""UPDATE GuildSettings SET GuildBankBalance=%s WHERE ServerId=%s;""",(str(new_bank),str(dm_tracker[message.author.id]["server_id"])))
+                if result2:
+                    pass
+                else:
+                    await direct_message(message, "Database error!")
+                result = await commit_sql("""INSERT INTO ArmamentInventory (ServerId, UserId, CharacterId, ArmamentId) VALUES (%s, %s, %s, %s);""",(str(dm_tracker[message.author.id]["server_id"]), str(message.author.id), dm_tracker[message.author.id]["fielddict"][0], dm_tracker[message.author.id]["fielddict"][2]))
+                if result:
+                    await direct_message(message, char_name + " purchased " + item_name + " for " + str(cost) + " and has " + str(currency) + " left.")
+                    await dm_tracker[message.author.id]["commandchannel"].send(">>> "+ char_name + " purchased " + item_name + " for " + str(cost) + " and has " + str(currency) + " left.")
+                    result_2 = await commit_sql("""UPDATE CharacterProfiles SET Currency=%s WHERE Id=%s""", (str(currency), dm_tracker[message.author.id]["fielddict"][0]))
+                    if not result_2:
+                        await reply_message(message, "Database error!")
+                        return
+                else:
+                    await reply_message(message, "Database error!")            
+                await initialize_dm(message.author.id)                
         elif current_command == 'sell':
             if dm_tracker[message.author.id]["currentfield"] == 0:
                 dm_tracker[message.author.id]["fielddict"].append(message.content)
@@ -1423,6 +1949,67 @@ async def on_message(message):
                     await reply_message(message, "You don't own this item!")
                 await initialize_dm(message.author.id)    
                 return
+        elif current_command == 'sellarms':
+            if dm_tracker[message.author.id]["currentfield"] == 0:
+                dm_tracker[message.author.id]["fielddict"].append(message.content)
+                menu = await make_menu(message, "ArmamentInventory", "Armaments","ArmamentId", "CharacterId", "ArmamentName", dm_tracker[message.author.id]["fielddict"][0])
+                if not menu:
+                    await direct_message(message, "You don't have any items for this character!")
+                    return
+                    
+                response = "**YOUR ARMAMENTS**\n\n" + menu
+                await direct_message(message, "Select an item to sell:\n\n" + response)
+                dm_tracker[message.author.id]["currentfield"] = 1
+                return
+            elif dm_tracker[message.author.id]["currentfield"] == 1:
+                dm_tracker[message.author.id]["fielddict"].append(message.content)
+                item_id = message.content
+                records = await select_sql("""SELECT ArmamentName,ArmamentCost FROM Armaments WHERE Id=%s""", (dm_tracker[message.author.id]["fielddict"][1],))
+                
+                if not records:
+                    await reply_message(message, "No item found by that ID!")
+                    return
+                for row in records:
+                    equip_name = row[0]
+                    cost = float(row[1])
+                records = await select_sql("""SELECT CharacterName,UserId,Currency FROM CharacterProfiles WHERE Id=%s;""",( dm_tracker[message.author.id]["fielddict"][0],))
+                if not records:
+                    await reply_message(message, "No character found by that name!")
+                    return
+                for row in records:
+                    char_name = row[0]
+                    user_id = int(row[1])
+                    currency = float(row[2])
+                if user_id != message.author.id:
+                    await reply_message(message, "This isn't your character!")
+                    return
+                records = await select_sql("""SELECT GuildBankBalance FROM GuildSettings WHERE ServerId=%s;""", (str(dm_tracker[message.author.id]["server_id"]),))
+                for row in records:
+                    balance = int(row[0])
+                if cost > balance:
+                    await direct_message(message, "The guild bank doesn't have enough to buy your item! Contact an admin or GM to update the bank balance!")
+                    return
+                new_bank = balance - cost
+                result2 = await commit_sql("""UPDATE GuildSettings SET GuildBankBalance=%s WHERE ServerId=%s;""",(str(new_bank),str(dm_tracker[message.author.id]["server_id"])))
+                if result2:
+                    pass
+                else:
+                    await direct_message(message, "Database error!")
+                currency = currency + cost
+                result = await commit_sql("""DELETE FROM ArmamentInventory WHERE ServerId=%s AND UserId=%s AND CharacterId=%s AND ArmamentId=%s;""",(str(dm_tracker[message.author.id]["server_id"]), str(message.author.id), dm_tracker[message.author.id]["fielddict"][0], item_id))
+                if result:
+                    await direct_message(message, char_name + " sold " + equip_name + " for " + str(cost) + " and has " + str(currency) + " left.")
+                    await dm_tracker[message.author.id]["commandchannel"].send(">>> " + char_name + " sold " + equip_name + " for " + str(cost) + " and has " + str(currency) + " left.")
+                    result_2 = await commit_sql("""UPDATE CharacterProfiles SET Currency=%s WHERE Id=%s""", (str(currency), dm_tracker[message.author.id]["fielddict"][0]))
+                    if not result_2:
+                        await direct_message(message, "Database error!")
+                        return
+                else:
+                    await reply_message(message, "You don't own this armament!")
+                await initialize_dm(message.author.id)    
+                return
+
+                    
         elif current_command == 'sendcurrency':
             if current_field == 0:
                 dm_tracker[message.author.id]["fielddict"].append(message.content)
@@ -1575,10 +2162,10 @@ async def on_message(message):
                 return                
             stat_to_mod = stat_to_mod + mod
             if mass_spar_event[dm_tracker[message.author.id]["server_id"]]:
-                if mass_spar_chars[message.author.id]:
+                if mass_spar_chars[dm_tracker[message.author.id]["server_id"]][message.author.id]:
                     mass_spar_chars[dm_tracker[message.author.id]["server_id"]][message.author.id][stat_mod] = mass_spar_chars[dm_tracker[message.author.id]["server_id"]][message.author.id][stat_mod] + mod
             if server_party[dm_tracker[message.author.id]["server_id"]]:
-                if server_party_chars[message.author.id]:
+                if server_party_chars[dm_tracker[message.author.id]["server_id"]][message.author.id]:
                     server_party_chars[dm_tracker[message.author.id]["server_id"]][message.author.id][stat_mod] = server_party_chars[dm_tracker[message.author.id]["server_id"]][message.author.id][stat_mod] + mod                    
             result = await commit_sql("""UPDATE CharacterProfiles SET """ + stat_mod + """=%s WHERE Id=%s""",(str(stat_to_mod), char_id))
             if not result:
@@ -1657,7 +2244,15 @@ async def on_message(message):
                     await direct_message(message, "melee " + field_dict[0] + " created successfully.")
                     await dm_tracker[message.author.id]["commandchannel"].send(">>> Melee attack " + field_dict[0] +  " successfully created.")
                 else:
-                    await direct_message(message, "Database error!")            
+                    await direct_message(message, "Database error!") 
+            elif current_command == 'newarmament':
+                
+                result = await insert_into(message, "Armaments")
+                if result:
+                    await direct_message(message, "equip " + field_dict[0] + " created successfully.")
+                    await dm_tracker[message.author.id]["commandchannel"].send(">>> Item " + field_dict[0] + " successfully created.")
+                else:
+                    await direct_message(message, "Database error!")                    
             elif current_command == 'newitem':
                 
                 result = await insert_into(message, "Equipment")
@@ -1732,6 +2327,14 @@ async def on_message(message):
                     await dm_tracker[message.author.id]["commandchannel"].send(">>> Item " + equip_name + " edited successfully.")
                 else:
                     await direct_message(message, "Database error!")
+            elif current_command == 'editarmament':
+
+                result = await update_table(message, "Armaments")
+                if result:
+                    await direct_message(message, "Armament" + equip_name + " edited successfully.")
+                    await dm_tracker[message.author.id]["commandchannel"].send(">>> Item " + equip_name + " edited successfully.")
+                else:
+                    await direct_message(message, "Database error!")
             elif current_command == 'editbuff':
 
                 result = await update_table(message, "Buffs")
@@ -1787,10 +2390,27 @@ async def on_message(message):
                 for row in records:
                     item_list = row[0]
                 item_list = item_list + str(dm_tracker[message.author.id]["fielddict"][1])
-                result = await commit_sql("UPDATE Vendors SET UserId=%s,ItemList=%s WHERE Id=%s;",(str(message.author.id), item_list, field_dict[0]))
+                result = await commit_sql("UPDATE Vendors SET UserId=%s,ArmamentsList=%s WHERE Id=%s;",(str(message.author.id), item_list, field_dict[0]))
                 if result:
                     await dm_tracker[message.author.id]["commandchannel"].send(">>> Vendor updated successfully.")
                     await direct_message(message, "Vendor updated successfully.")
+            elif current_command == 'newarmory':
+                result = await insert_into(message, "Armory")
+                if result:
+                    await direct_message(message, "Armory " + field_dict[0] + " updated successfully.")
+                    await dm_tracker[message.author.id]["commandchannel"].send(">>> Armory " + field_dict[0] + " createed successfully.")
+                else:
+                    await direct_message(message, "Database error!")
+            elif current_command == 'addarmoryitem':
+                records = await select_sql("SELECT ArmamentList FROM Armory WHERE Id=%s;",(str(dm_tracker[message.author.id]["fielddict"][0]),))
+                for row in records:
+                    item_list = row[0]
+                item_list = item_list + str(dm_tracker[message.author.id]["fielddict"][1])
+                result = await commit_sql("UPDATE Armory SET UserId=%s,ArmamentList=%s WHERE Id=%s;",(str(message.author.id), item_list, field_dict[0]))
+                if result:
+                    await dm_tracker[message.author.id]["commandchannel"].send(">>> Armory updated successfully.")
+                    await direct_message(message, "Armory updated successfully.")
+                return                    
             await initialize_dm(message.author.id)        
         else:
             pass
@@ -1842,12 +2462,12 @@ async def on_message(message):
             fields = " "
             if parsed_string == '=help' or parsed_string == '=info':
             
-                response = "`Welcome to RP Mastermind, the Discord RP Bot Master!`\n\n\n\n*Using Help:*\n\n\n\nType =info or =help followed by one of these categories:\n\n\n\n`general`: Not commands, but information on how the bot works.\n\n`setup`: Commands for getting the bot running.\n\n`characters`: Commands for managing characters.\n\n`npcs`: Commands for managing NPCs.\n\n`monsters` Commands for managing monsters.\n\n`equipment`: Commands for managing equipment.\n\n`encounters`: Commands for managing encounters.\n\n`melee` Commands for managing melee attacks.\n\n`spells` Commands for managing spells.\n\n`sparring`: Commands for managing sparring.\n\n`inventory`: Commands for managing inventory.\n\n`economy`: Commands for buying, selling and the guild bank.\n\n`vendors`: Commands for creating, editing and deleting vendors and adding items to them.\n\n`buffs`: Commands for adding, editing, deleting, and giving and taking away buffs.\n\n`fun`: Commands for old time RP fun.\n\nMore advanced documentation can be found on the wiki: https://github.com/themidnight12am/rpmastermind/wiki\n\n"
+                response = "`Welcome to RP Mastermind, the Discord RP Bot Master!`\n\n\n\n*Using Help:*\n\n\n\nType =info or =help followed by one of these categories:\n\n\n\n`general`: Not commands, but information on how the bot works.\n\n`setup`: Commands for getting the bot running.\n\n`characters`: Commands for managing characters.\n\n`npcs`: Commands for managing NPCs.\n\n`monsters` Commands for managing monsters.\n\n`items`: Commands for managing equipment.\n\n`encounters`: Commands for managing encounters.\n\n`melee` Commands for managing melee attacks.\n\n`spells` Commands for managing spells.\n\n`sparring`: Commands for managing sparring.\n\n`inventory`: Commands for managing inventory.\n\n`economy`: Commands for buying, selling and the guild bank.\n\n`vendors`: Commands for creating, editing and deleting vendors and adding items to them.\n\n`buffs`: Commands for adding, editing, deleting, and giving and taking away buffs.\n\n`armaments`: Commands for managing armaments\n\n`armories`: Commands for managing armories.\n\n`fun`: Commands for old time RP fun.\n\nMore advanced documentation can be found on the wiki: https://github.com/themidnight12am/rpmastermind/wiki\n\n"
             elif parsed_string == 'setup':
                 response = "**SETUP COMMANDS**\n\n\n\n`=setadminrole @Role`: *Owner* Set the admin role. This must be done before any other setup. This can only be done by a server owner. See general for role descriptions.\n\n`=newsetup` *Admin* Set up the initial server parameters. See the fields below for descriptions.\n\n`=editsetup` Modify the existing server setup parameters.\n\n`=setplayerrole @Role` *Admin* Set the player role.\n\n`=setgmrole @Role` *Admin* Set the Game Moderator role.\n\n`=setnpcrole @Role` *Admin* Set the NPC manager role.\n\n`=listroles` *None* List the server roles.\n\n`=addadmin @user1 @user2` Add users to the admin role. Only the server owner can do this.\n\n`=addnpcuser @user1 @user2` Add users to the NPC role.\n\n`=addplayer @user1 @user2` Add users to the player role.\n\n`=addgm @user1 @user2` Add users to the GM role.\n\n`=deleteadmin @user1 @user2` Delete users from the admin role. Only the server owner can do this.\n\n`=deletenpc @user1 @user2` Delete users from the NPC role.\n\n`=deleteplayer @user1 @user2` Delete users from the player role.\n\n`=deletegm @user1 @user2` Delete users from the GM role.\n\n`=resetserver` Wipe all data from the bot for this server. Only the server owner may perform this action.\n\n`=invite` Get an invite link for the bot.\n\n"
                 fields = "**SERVER SETTINGS FIELDS**\n\n\n\n`GuildBankBalance:` The total currency in the guild bank. Used for determining how much can be sold back to the guild or how much currency can be given by GMs.\n\n`StartingHealth:` The amount of health new characters start with.\n\n`StartingMana:` The amount of stamina new characters start with.\n\n`StartingAttack:` The amount of attack power new characters start with for melee.\n\n`StartingDefense:` The amount of defense against total damage a character starts with.\n\n`StartingMagicAttack:` The amount of spell power a new character starts with.\n\n`StartingAgility:` The amount of agility a new character starts with.\n\n`StartingIntellect:` The amount of intellect a new character starts with (unused).\n\n  `StartingCharisma:` The amount of charisma a new character starts with (unused).\n\n`HealthLevelRatio:` How many times the level a character's health is set to.\n\n`ManaLevelRatio:` How many times the level a character's mana is set to.\n\n`StaminaLevelRatio:` How many times the level a character's stamina is set to.\n\n`XPLevelRatio:` How many times a level XP must total to before a new level is granted.\n\n`HealthAutoHeal:` How much health is restored per turn during spars and encounters for characters as a multiplier of health. Set to zero for no restores, or less than 1 for partial autoheal (such as 0.1 for 10% per turn).\n\n`ManaAutoHeal:` How much mana restores per turn.\n\n`StaminaAutoHeal:` How much stamina restores per turn.\n\n"
             elif parsed_string == 'characters':
-                response = "**CHARACTER COMMANDS**\n\n\n\n`=newchar` *Player* Set up a new character. The bot will DM you for all new fields. An admin must approve a character to become active.\n\n`=editstats` *Admin* Modify character statistics. Specify the name of the character, the bot will DM you for new stats.\n\n`=editchar <charname>` *Player* Edit an existing character's profile. The bot will DM you for the fields.\n\n`=setcharbio` *Player* Set a character's biography (free text).\n\n`=setcharskills` *Player* Set the character's skills (free text).\n\n`=setcharstrengths` *Player* Set the character's strengths (free text).\n\n`=setcharweaknesses` *Player* Set the character's weaknesses (free text).\n\n`=setcharpowers` *Player* Set the character's powers and abilities (free text).\n\n`=setcharpersonality` *Player* Set the character's personality (free text).\n\n`=deletechar <charname>` *Player* Delete a character.\n\n`=getcharskills` *None* Get the current list of character spells and melee attacks.\n\n`=getcharprofile` *None* Get a character's complete profile.\n\n`=listmychars` *Player* List the current user's characters.\n\n`=listallchars` *None* List all server characters and their owners.\n\n`=listuserchars @User` *None* List a user's characters.\n\n`=addstatpoints` *Player* Spend earned stat points on character stats.\n\n`=givestatpoints` *Game Moderator* Grant stat points to a character.\n\n`=approvechar` *Admin* Approve a character for play.\n\n`=denychar` *Admin* Decline a character for play. A reason should be provided, and the admin has the option to delete the application entirely if it cannot be fixed.\n\n`=listunapprovedchars` *None* List the characters waiting to be approved or denied.\n"
+                response = "**CHARACTER COMMANDS**\n\n\n\n`=newchar` *Player* Set up a new character. The bot will DM you for all new fields. An admin must approve a character to become active.\n\n`=editstats` *Admin* Modify character statistics. Specify the name of the character, the bot will DM you for new stats.\n\n`=editchar <charname>` *Player* Edit an existing character's profile. The bot will DM you for the fields.\n\n`=setcharbio` *Player* Set a character's biography (free text).\n\n`=setcharskills` *Player* Set the character's skills (free text).\n\n`=setcharstrengths` *Player* Set the character's strengths (free text).\n\n`=setcharweaknesses` *Player* Set the character's weaknesses (free text).\n\n`=setcharpowers` *Player* Set the character's powers and abilities (free text).\n\n`=setcharpersonality` *Player* Set the character's personality (free text).\n\n`=deletechar <charname>` *Player* Delete a character.\n\n`=getcharskills` *None* Get the current list of character spells and melee attacks.\n\n`=getcharprofile` *None* Get a character's complete profile.\n\n`=listmychars` *Player* List the current user's characters.\n\n`=listallchars` *None* List all server characters and their owners.\n\n`=listuserchars @User` *None* List a user's characters.\n\n`=addstatpoints` *Player* Spend earned stat points on character stats.\n\n`=givestatpoints` *Game Moderator* Grant stat points to a character.\n\n`=approvechar` *Admin* Approve a character for play.\n\n`=denychar` *Admin* Decline a character for play. A reason should be provided, and the admin has the option to delete the application entirely if it cannot be fixed.\n\n`=listunapprovedchars` *None* List the characters waiting to be approved or denied.\n`=getchararms name` Get a list of the named character's armaments.\n\n`=getcharequipped name` See what the character currently has equipped in which slots.\n\n"
                 fields = "**CHARACTER FIELDS**\n\n\n\n`CharacterName:` The given full name of the character.\n\n`Age:` The age of the character.\n\n`Race:` The race of the character (human, vampire, etc)\n\n`Gender:` The gender, if known of the character (male, female, trans, etc).\n\n`Height:` The usual height of the character, if known (5'5'', 10 cubits, etc).\n\n`Weight:` The mass on the current world of the character (180 lbs, five tons, etc).\n\n`PlayedBy:` The name of the artist, human representation, actor, etc who is used to show what the character looks like (Angelina Jolie, Brad Pitt, etc).\n\n`Origin:` The hometown or homeworld of the character (Texas, Earth, Antares, etc).\n\n`Occupation:` What the character does for a living, if applicable (blacksmith, mercenary, prince, etc).\n\n`PictureLink:` A direct upload or http link to a publicly accessible picture on the Internet. Google referral links don't always work.\n\n\n\n**ADDITIONAL CHARACTER INFO**\n\n\n\n`Personality:` Free text description of the character's personality (aloof, angry, intelligent)\n\n`Biography:` Any information about the character's history (tragic past, family story, etc).\n\n`Description:` Free text physical description of the character, especially if no play by or picture link is provided, or a description of alternate forms (such as wolf form, final form, etc).\n\n`Strengths:` Free text description of what the character is good at (drawing, melee combat, science, magic.\n\n`Weaknesses:` Free text description of what weaknesses the character has (silver, light, Kryptonite, etc).\n\n`Powers:` The supernatural abilities the character has (such as magic, fire, telepathy.\n\n`Skills:` Any speciality skills the character has (ace sniper, expert in arcane arts, engineer PhD, etc).\n\n\n\n**CHARACTER STATISTICS**\n\n\n\n`Attack:` The base number for melee combat damage. Multiplied by the melee damage multiplier.\n\n`Defense:` The total defense against all damage the character has. Subtracted from damage.\n\n`MagicAttack:` The base number for spell damage. Multiplied by the spell damage multiplier.\n\n`Health:` The amount of health a character has. When this reaches zero during sparring or monster encounters, the player is out of the group. Can be restored by buffs or items. Base is 20 times the level, and restores by 10% each turn.\n\n`Level:` The character's current level, which determines health, mana and stamina. Also determines the experience gained by combat with characters or monsters of different levels.\n\n`Experience:` The amount of experience a character has. To level up, a character must earn 20 times their current level in experience points.\n\n`Stamina:` The amount of stamina a character has for melee combat. When this reaches zero, a chracter must pass or use a spell or item. Heals by 20% every turn.\n\n`Mana:` The amount of mana for spells. When this reaches zero, a character must pass, use melee attacks or an item. Heals for 20% every turn.\n\n`Agility:` How likely a character is to dodge an attack. Higher agility means greater speed.\n\n`Intellect:` Currently unused.\n\n`Charisma:` Currently unused.\n\n`Currency:` How much money a character has for purchasing items.\n\n"
                 
             elif parsed_string == 'npcs':
@@ -1855,11 +2475,11 @@ async def on_message(message):
             elif parsed_string == 'monsters':
                 response = "**MONSTER COMMANDS**\n\n\n\n`=newmonster` *Game Moderator* Add a new monster to the game.\n\n`=editmonster monster name` *Game Moderator* Edit an existing monster. The bot will DM you for the fields.\n\n`=deletemonster monster name` *Game Moderator* Delete a monster from the game.\n\n"
                 fields = "**MONSTER FIELDS**\n\n\n\n`MonsterName:` The name of the monster as appearing in encounters.\n\n`Description:` A brief description of the monster physically, its temperament, and powers.\n\n`Health:` The total health of the monster. When this reaches zero, the encounter ends. It does not restore.\n\n`Level:` The level of the monster, used for calculating experience.\n\n`Attack:` The attack power of the monster. The monster's damage multiplier will be a random number between one and five.\n\n`Defense:` The defense against player damage the monster has.\n\n`Element:` The magic element of the monster, currently unused.\n\n`MagicAttack:` The spell power of the monster, currently unused.\n\n`MaxCurrencyDrop:` The maximum amount of money the monster drops when the encounter ends. The drop will vary between 1 and this maximum and is evenly split among the server party.\n\n`PictureLink:` A picture of the monster, either Internet link or direct Discord upload.\n\n"
-            elif parsed_string == 'equipment':
-                response = "**EQUIPMENT COMMANDS**\n\n\n\n`=newitem` *Admin* Add a new item to the game.\n\n`=edititem` Edit an existing item. The bot will DM you for the fields.\n\n`=deleteitem item name` Remove an item from the game.\n\n`=listitems` List all equipment on the server.\n\n"
-                fields = "**ITEM FIELDS**\n\n\n\nEquipmentName:` The name of the item as it will appear in the inventory and vendor lists.\n\n`EquipmentDescription:` A description of the item.\n\n`EquipmentCost:` How much currency a player must have to purchase the item.\n\n`MinimumLevel:` The minimum level a character must be to use an item. A player may purchase a higher-level item but will not be able to use it until their level is the minimum or higher.\n\n`StatMod:` Which character statistic this item modifies (Health, Stamina, Mana, Attack, Defense, MagicAttack, Agility).\n\n`Modifier:` The value this item modifies the statistic by. A positive value increases the stat, a negative one decreases it. So a healing potion could be 100, and a cursed item -500.\n\n"
+            elif parsed_string == 'items':
+                response = "**ITEM COMMANDS**\n\n\n\n`=newitem` *Admin* Add a new item to the game.\n\n`=edititem` Edit an existing item. The bot will DM you for the fields.\n\n`=deleteitem item name` Remove an item from the game.\n\n`=listitems` List all equipment on the server.\n\n`=giveitem` *Game Moderator* Give a character an item.\n\n`=takeitem` *Game Moderator.* Take an item away from a character."
+                fields = "**ITEM FIELDS**\n\n\n\n`EquipmentName:` The name of the item as it will appear in the inventory and vendor lists.\n\n`EquipmentDescription:` A description of the item.\n\n`EquipmentCost:` How much currency a player must have to purchase the item.\n\n`MinimumLevel:` The minimum level a character must be to use an item. A player may purchase a higher-level item but will not be able to use it until their level is the minimum or higher.\n\n`StatMod:` Which character statistic this item modifies (Health, Stamina, Mana, Attack, Defense, MagicAttack, Agility).\n\n`Modifier:` The value this item modifies the statistic by. A positive value increases the stat, a negative one decreases it. So a healing potion could be 100, and a cursed item -500.\n\n"
             elif parsed_string == 'encounters':
-                response = "**ENCOUNTER COMMANDS**\n\n\n\n`=newparty @user1 @user2` *Game Moderator* Set a new party with the specified users.\n\n`=disbandparty` *Game Moderator* Disband the current server party.\n\n`=setencounterchar` *Player* Set the player's character for the encounter.\n\n`=encountermonster` *Game Moderator* Begin the monster encounter.\n\n`=monsterattack` *Game Moderator* Have the monster attack a random party member.\n\n`=castmonster` *Player* Attack the monster with the specified spell.\n\n`meleemonster` *Player* Attack the monster with the specified melee attack.\n\n`=abortencounter` *Game Moderator* End the encounter with no health penalty *and* no experience gained.\n\n`=pass` Pass on your turn.\n\n\n\n"
+                response = "**ENCOUNTER COMMANDS**\n\n\n\n`=newparty @user1 @user2` *Game Moderator* Set a new party with the specified users.\n\n`=disbandparty` *Game Moderator* Disband the current server party.\n\n`=setencounterchar` *Player* Set the player's character for the encounter.\n\n`=encountermonster` *Game Moderator* Begin the monster encounter.\n\n`=monsterattack` *Game Moderator* Have the monster attack a random party member.\n\n`=castmonster` *Player* Attack the monster with the specified spell.\n\n`meleemonster` *Player* Attack the monster with the specified melee attack.\n\n`=weaponmonster` Attack the monster with an equipped armament.\n\n`=abortencounter` *Game Moderator* End the encounter with no health penalty *and* no experience gained.\n\n`=pass` Pass on your turn.\n\n\n\n"
                 fields = "**ENCOUNTER COMMAND SEQUENCE**\n\n\n\nA game moderator can begin a monster encounter by using the command `=newparty` followed by mentions (@) of the players in the encounter. Each player must then enter `=setencounterchar` to set a character for the encounter by using the DM system. The game moderator then use the command `=encountermonster` and selects a server monster from the list by replying to the DM. This initiates the encounter. Each character will be told it is their turn and can use `=meleemonster` to select a melee attack to strike the monster or `=castmonster` to strike the monster with a spell. The game moderator may use `=monsterattack` on anyone's turn to randomly strike any party member with the monster's attack. The game moderator may also end the encounter early with the `=abortencounter` command, which resets all stats but does not restore items, and returns no experience or currency. Players may also `=pass` on their turn but may not leave the encounter. The encounter ends when the monster's health reaches zero, and then everyone gets an even split of the currency drop and experience based on the damage they did to the monster. The party will not disband automatically, in case there are multiple monsters to encounter. A party may disband with the `=disbandparty` command."
             elif parsed_string == 'melee':
                 response = "**MELEE COMMANDS**\n\n\n\n`=newmelee` *Admin* Create a new melee attack.\n\n`=editmelee` *Admin* Edit an existing melee attack. The bot will DM you for the fields.\n\n`=deletemelee attack name` *Admin* Delete a melee attack.\n\n`=listmelees` *None* List all melee attacks on the server.\n\n`=givemelee` *Admin* Give a character a melee attack.\n\n`=takemelee` *Admin* Take a melee attack from a character.\n\n"
@@ -1868,12 +2488,12 @@ async def on_message(message):
                 response = "**SPELL COMMANDS**\n\n\n\n`=newspell` *Admin* Create a new spell.\n\n`=editspell` *Admin* Edit an existing spell.\n\n`=deletespell spell name` Delete a spell.\n\n`=listspells` *Admin* List all server spells.\n\n`=givespell` *Admin* Give a character a spell.\n\n`=takespell` *Admin* Take a spell away from a character.\n\n"
                 fields = "`SPELL FIELDS`\n\n\n\n`SpellName:` The name of the spell as it appears in combat or skill lists.\n\n`Element:` The magic element of this spell (currently unused).\n\n`ManaCost:` The amount of mana drained to perform the spell.\n\n`MinimumLevel:` The mininum level required to use the spell. A character may know higher-level spells but cannot use them in combat.\n\n`DamageMultiplier:` The value by which MagicAttack is multiplied for total spell damage.\n\n`Description:` A free text description of the spell, such as what it looks like or its effects.\n\n"
             elif parsed_string == 'sparring':
-                response = "**SPARRING COMMANDS**\n\n\n\n*All spar commands only require player role.*\n\n\n\n`=newspargroup @User1 @User2...` Initiate a spar with two or more players.\n\n`=sparconfirm` Confirm you wish to spar if included in a spar group.`=spardeny` Decline the spar group invitation. If only player is left, the spar group disbands.\n\n`=setsparchar` Set the character to use for the spar.\n\n`=beginspar` Begin the spar. The bot will keep track of turns.\n\n`=meleespar` Target a *user's* character with a melee attack.\n\n`=castspar` Target a *user's* character with a spell.\n\n`=leavespar` Leave a spar group. You gain no experience and your health returns to normal, but the other spar members do gain experience.\n\n"
+                response = "**SPARRING COMMANDS**\n\n\n\n*All spar commands only require player role.*\n\n\n\n`=newspargroup @User1 @User2...` Initiate a spar with two or more players.\n\n`=sparconfirm` Confirm you wish to spar if included in a spar group.`=spardeny` Decline the spar group invitation. If only player is left, the spar group disbands.\n\n`=setsparchar` Set the character to use for the spar.\n\n`=beginspar` Begin the spar. The bot will keep track of turns.\n\n`=meleespar` Target a *user's* character with a melee attack.\n\n`=castspar` Target a *user's* character with a spell.\n\n`=weaponspar` Attack a player with an armament.\n\n`=leavespar` Leave a spar group. You gain no experience and your health returns to normal, but the other spar members do gain experience.\n\n"
                 fields = "**SPARRING COMMAND SEQUENCE**\n\n\n\nAny player may initiate a spar with any number of players. The first command is `=newspargroup` followed by Discord mentions (@) of players wished to be in the spar group. Next, all mentioned players must reply `=sparconfirm` or `=spardeny` to join or not join the spar. If at least two people confirm the spar, then all players must select a character by entering `=setsparchar` and replying to the DM which character to use. `=beginspar` will initiate the spar. During combat, `=meleespar` will allow a character to select a melee attack and any target, and `=castspar` will allow a character to select a spell and any target. `=useitem` can be used out of turn to restore any statistic. A player may enter `=pass` if they have no mana or stamina, or do not wish to attack, and `=leavespar` will remove a character from the spar, gaining no experience but having no penalty on health.\n\n"
             elif parsed_string == 'inventory':
-                response = "**INVENTORY COMMANDS**\n\n\n\n`=myitems <character name>` List your character's items.\n\n`useitem Character: CharacterName\n\nItem: ItemName`\n\nUse an item in your inventory.\n\n"
+                response = "**INVENTORY COMMANDS**\n\n\n\n`=myitems <character name>` List your character's items.\n\n`=useitem`\n\nUse an item in your inventory.\n\n"
             elif parsed_string == 'economy':
-                response = "**ECONOMY COMMANDS**\n\n\n\n`=givecurrency` *Game Moderator* Give a character money!\n\n`=buy` Buy an item from a vendor.\n\n`=sell` Sell an item back to the game for money.\n\n`=trade` Give an item to another character. Be careful with trades, as there's no way to guarantee the other party will trade back!\n\n`=sendcurrency` Send currency to another character, including your own.\n\n`=setbankbalance` *Admin* Update the bank guild balance.\n\n\n\n"
+                response = "**ECONOMY COMMANDS**\n\n\n\n`=givecurrency` *Game Moderator* Give a character money!\n\n`=buy` Buy an item from a vendor.\n\n`=sell` Sell an item back to the game for money.\n\n`=trade` Give an item to another character. Be careful with trades, as there's no way to guarantee the other party will trade back!\n\n`=sendcurrency` Send currency to another character, including your own.\n\n`=buyarms` Buy an armament from an armory.\n\n`=sellarms` Sell an armament back to the bank.\n\n`=tradearms` Trade an armament to another character. Again, no fairness is enforced.\n\n`=setbankbalance` *Admin* Update the bank guild balance.\n\n\n\n"
 
             elif parsed_string == 'vendors':
                 response = "**VENDOR COMMANDS**\n\n\n\n`=newvendor` Create a new vendor with items.\n\n`=addvendoritem` Add items to an existing vendor.\n\n`=deletevendor` Remove a vendor from the game.\n\n`=deletevendoritem` Delete an item for a particular vendor.\n\n`=listvendors` List all vendors in the game.\n\n`=listvendor <name>` List all items of a particular vendor."
@@ -1886,7 +2506,12 @@ async def on_message(message):
                 response = "**BUFF COMMANDS**\n\n\n\n=`=newbuff` *Admin* Create a new buff.\n\n`=editbuff` Edit an existing buff.\n\n`=deletebuff` Delete a buff from the server.\n\n`=givebuff` Give a buff to a character.\n\n`=takebuff` Take a buff from a character.\n\n`=buff` Use a buff on a character during a spar or encounter.\n\n"
                 fields = "**BUFF FIELDS**\n\n\n\n`BuffName:` The name of the buff spell.\n\n`ManaCost:` The amount of mana drained to use the buff.\n\n`MinimumLevel:` The minimum level required to use the buff.\n\n`StatMod:` The status modified by the buff.\n\n`Modifier:` The amount, positive or negative, of the buff's modification to the status.\n\n`Description:` A free text desciption of the buff.\n\n"
 
-            
+            elif parsed_string == 'armaments':
+                response = "**ARMAMENTS COMMANDS**\n\n\n\n`=newarmament` Create a new armament.\n\n`=editarmament` Edit an existing armament.\n\n`=deletearmament` Delete an armament from the game.\n\n`=givearmament` Give an armament to a character.\n\n`=takearmament` Take an armament from a character.\n\n`=equiparmament` Equip a character with an armament from their inventory in an available, matching slot.\n\n`=unequiparmament` Remove an armamemnt from an equipped slot on a character.\n\n"
+                fields = "**ARMAMENT FIELDS**\n\n\n\n`ArmamentName`: The display name of the armament.\n\n`Description`: The free text description of the armament.\n\n`ArmamentCost`: How much currency the armament will sell for.\n\n`MinimumLevel`: The minimum level required to use the armament.\n\n`StatMod`: The status field modified by the armament (Attack, MagicAttack or Agility)\n\n`Modifier`: The amount a statistic is modified by the armament.\n\n`Slot`: The slot the armament can be equipped in (Head, Hand, Chest, or Feet)\n\n`MinimumDamage`: The minimum damage the armament can do (zero for status only items).\n\n`MaximumDamage`: The maximum amount of damage the armament can do (zero for status only items).\n\n`Defense`: The amount of defense added by the armament (zero for non-defensive armaments).\n\n"
+            elif parsed_string == 'armories':
+                response = "**ARMORY COMMANDS**\n\n\n\n`=newarmory` Create a new armory.\n\n`=editarmory` Edit an existing armory.\n\n`=deletearmory` Delete an armory from the game.\n\n`=addarmoryitem` Add items to an armory.\n\n`=deletearmoryitem` Delete an item from the armory.\n"
+                fields = "**ARMORY FIELDS**\n\n\n\n`ArmoryName:` The display name of the armory.\n\n`ArmamentList:` The list of armaments for sale at this armory.\n"
             if fields:
                 await reply_message(message, response + fields)
             else: 
@@ -1894,7 +2519,7 @@ async def on_message(message):
         if "AdminRole" not in guild_settings[message.guild.id].keys():
             await reply_message(message, "Admin role not set! Please set an admin role using the command =setadminrole @Role")
             return
-        if message.guild and re.search(r"cast|melee", message.content):
+        if message.guild and re.search(r"cast|melee|weapon", message.content):
             if mass_spar_event[message.guild.id] and message.author.id in list(mass_spar_chars[message.guild.id].keys()):
                 server_id = message.guild.id
                 user_id = message.author.id
@@ -1961,6 +2586,11 @@ async def on_message(message):
             create_healing_table = """CREATE TABLE Buffs (Id int auto_increment, ServerId VARCHAR(40), UserId VARCHAR(40), BuffName VARCHAR(100), ManaCost Int, MinimumLevel Int, StatMod VARCHAR(30), Modifier Int, Description TEXT, PRIMARY KEY(Id));"""
             create_buff_char_table = """CREATE TABLE BuffSkills (Id int auto_increment, ServerId VARCHAR(40), UserId VARCHAR(40), CharId Int, BuffId Int, PRIMARY KEY(Id));"""
             create_unapproved_char_table = """CREATE TABLE UnapprovedCharacterProfiles (Id int auto_increment, ServerId varchar(40), UserId varchar(40), CharacterName varchar(50), LastName varchar(100), Age Int, Race varchar(30), Gender varchar(20), Height varchar(10), Weight varchar(10), PlayedBy varchar(40), Origin varchar(100), Occupation varchar(100), Personality TEXT, Biography TEXT, Description TEXT, Strengths TEXT, Weaknesses TEXT, Powers TEXT, Skills TEXT, Attack Int, Defense Int, MagicAttack Int, Health Int, Mana Int, Level Int, Experience Int, Stamina Int, Agility Int, Intellect Int, Charisma Int, Currency DECIMAL(12,2), PictureLink varchar(1024), PRIMARY KEY (Id));"""
+            create_armaments_table = """CREATE TABLE Armaments (Id int auto_increment, ServerId VARCHAR(40), UserId VARCHAR(40),ArmamentName VARCHAR(100), Description TEXT, ArmamentCost DECIMAL(7,2), Slot VARCHAR(20), MinimumLevel Int, DamageMin Int, DamageMax Int, Defense Int, StatMod VARCHAR(30), Modifier Int, PRIMARY KEY(Id));"""
+            create_char_armaments_table = """CREATE TABLE CharacterArmaments (Id int auto_increment, ServerId VARCHAR(40), UserId VARCHAR(40), CharacterId Int, HeadSlotId Int, LeftHandId Int, RightHandId Int, ChestId Int, FeetId int, PRIMARY KEY(Id));"""
+            create_char_armaments_inventory_table = """CREATE TABLE ArmamentInventory (Id int auto_increment, ServerId VARCHAR(40), UserId VARCHAR(40), CharacterId Int, ArmamentId Int, PRIMARY KEY(Id));"""
+            create_armory_table = """CREATE TABLE Armory (Id Int auto_increment, ServerId VARCHAR(40), UserId VARCHAR(40), ArmoryName VARCHAR(100), ArmamentList TEXT, PRIMARY KEY(Id));"""
+            
             result = await execute_sql(create_profile_table)
             if not result:
                 await reply_message(message, "Database error with profile!")
@@ -2028,6 +2658,22 @@ async def on_message(message):
             result = await execute_sql(create_unapproved_char_table)
             if not result:
                 await reply_message(message, "Database error with unapproved char table!")
+                return
+            result = await execute_sql(create_armaments_table)
+            if not result:
+                await reply_message(message, "Database error with armaments table!")
+                return                                       
+            result = await execute_sql(create_char_armaments_table)
+            if not result:
+                await reply_message(message, "Database error with character armaments table!")
+                return
+            result = await execute_sql(create_char_armaments_inventory_table)
+            if not result:
+                await reply_message(message, "Database error with character armaments inventory table!")
+                return 
+            result = await execute_sql(create_char_armory_table)
+            if not result:
+                await reply_message(message, "Database error with armory table!")
                 return                    
             await reply_message(message, "Databases initialized!")
         elif command == 'deleteall':
@@ -2067,7 +2713,7 @@ async def on_message(message):
                 mass_spar_turn[server_id] = 0
             else:
                 mass_spar_turn[server_id] = mass_spar_turn[server_id] + 1
-            await reply_message(message, "<@" + str(list(mass_spar[server_id])[mass_spar_turn[server_id].id]) + ">, it is your turn!")             
+            await reply_message(message, "<@" + str(mass_spar[server_id][mass_spar_turn[server_id]].id) + ">, it is your turn!")             
         elif command == 'roll':
             dice_re = re.compile(r"(\d+)d(\d+)")
             m = dice_re.match(parsed_string)
@@ -2085,10 +2731,12 @@ async def on_message(message):
             response = response + "\nSum of rolled dice: `" + str(sum) + "`"
             await reply_message(message, response)
         elif command == 'leavespar':
+            server_id = message.guild.id
+            user_id = message.author.id
             if not role_check(guild_settings[message.guild.id]["PlayerRole"], message.author):
                 await reply_message(message, "You must be a member of the player role to leave a spar!")
                 return            
-            if not mass_spar_event[server_id]:
+            if not mass_spar_event[message.guild.id]:
                 await reply_message(message, "Why are you trying to leave a spar? There's nothing going on!")
                 return
 
@@ -2760,7 +3408,7 @@ async def on_message(message):
             await direct_message(message, "You have requested a new melee attack! Please type in the response the **attack name**, and then enter each field as a reply to the DMs. When you have filled out all fields, the melee attack will be created!")            
         elif command == 'newvendor':
             if not role_check(guild_settings[message.guild.id]["AdminRole"], message.author):
-                await reply_message(message, "You must be a member of the admin role to create new melee attacks!")
+                await reply_message(message, "You must be a member of the admin role to create new vendors!")
                 return
                 
             if message.author.id not in dm_tracker.keys():
@@ -2791,6 +3439,31 @@ async def on_message(message):
             response = "Please select a vendor from the below list to edit:\n\n" + menu
             await reply_message(message, "Please check your DMs for instructions on how to add items to a vendor, <@" + str(message.author.id) + ">.")
             await direct_message(message, response)
+        elif command == 'deletevendor':
+            if not role_check(guild_settings[message.guild.id]["AdminRole"], message.author):
+                await reply_message(message, "You must be a member of the admin role to delete vendors!")
+                return
+            if not parsed_string:
+                await reply_message(message, "No vendor name specified!")
+                return
+            result = commit_sql("""DELETE FROM Vendors WHERE ServerId=%s and VendorName=%s;""",(str(message.author.id),parsed_string))
+            if result:
+                await reply_message(message, "Vendor " + parsed_string + " deleted!")
+            else:
+                await reply_message(message, "Database error!")
+        elif command == 'deletearmory':
+            if not role_check(guild_settings[message.guild.id]["AdminRole"], message.author):
+                await reply_message(message, "You must be a member of the admin role to delete armories!")
+                return
+            if not parsed_string:
+                await reply_message(message, "No armory name specified!")
+                return                
+            result = commit_sql("""DELETE FROM Armory WHERE ServerId=%s and ArmoryName=%s;""",(str(message.author.id),parsed_string))
+            if result:
+                await reply_message(message, "Armory " + parsed_string + " deleted!")
+            else:
+                await reply_message(message, "Database error!")                
+            
         elif command == 'deletevendoritem':
             if not role_check(guild_settings[message.guild.id]["AdminRole"], message.author):
                 await reply_message(message, "You must be a member of the admin role to edit vendors!")
@@ -2830,7 +3503,78 @@ async def on_message(message):
             response = "**VENDORS**\n\n"
             menu = await make_simple_menu(message, "Vendors", "VendorName")
             await reply_message(message, response + menu)
+        elif command == 'newarmory':
+            if not role_check(guild_settings[message.guild.id]["AdminRole"], message.author):
+                await reply_message(message, "You must be a member of the admin role to create new armories!")
+                return
+                
+            if message.author.id not in dm_tracker.keys():
+                await initialize_dm(message.author.id)
+            dm_tracker[message.author.id]["currentcommand"] = 'newarmory'
+            dm_tracker[message.author.id]["fieldlist"] = ["ArmoryName","ArmamentList"]                                                   
+            dm_tracker[message.author.id]["currentfield"] = 0
+            dm_tracker[message.author.id]["fielddict"] = [] 
+            dm_tracker[message.author.id]["server_id"] = message.guild.id
+            dm_tracker[message.author.id]["commandchannel"] = message.channel
             
+            await reply_message(message, "Please check your DMs for instructions on how to create a new armory, <@" + str(message.author.id) + ">.")
+            
+            await direct_message(message, "You have requested a new armory! Please type in the response the **armory name**, and then enter each field as a reply to the DMs. When you have filled out all fields, the armory will be created!")
+        elif command == 'addarmoryitem':
+            if not role_check(guild_settings[message.guild.id]["AdminRole"], message.author):
+                await reply_message(message, "You must be a member of the admin role to edit armories!")
+                return
+            if message.author.id not in dm_tracker.keys():
+                await initialize_dm(message.author.id)
+            dm_tracker[message.author.id]["currentcommand"] = 'addarmoryitem'
+            dm_tracker[message.author.id]["fieldlist"] = ["ArmoryName","ItemList"]                                                   
+            dm_tracker[message.author.id]["currentfield"] = 0
+            dm_tracker[message.author.id]["fielddict"] = [] 
+            dm_tracker[message.author.id]["server_id"] = message.guild.id
+            dm_tracker[message.author.id]["commandchannel"] = message.channel
+            menu = await make_simple_menu(message, "Armory", "ArmoryName")
+            response = "Please select a armory from the below list to edit:\n\n" + menu
+            await reply_message(message, "Please check your DMs for instructions on how to add items to a armory, <@" + str(message.author.id) + ">.")
+            await direct_message(message, response)
+        elif command == 'deletearmoryitem':
+            if not role_check(guild_settings[message.guild.id]["AdminRole"], message.author):
+                await reply_message(message, "You must be a member of the admin role to delete armories!")
+                return
+            if message.author.id not in dm_tracker.keys():
+                await initialize_dm(message.author.id)
+            dm_tracker[message.author.id]["currentcommand"] = 'deletearmoryitem'
+            dm_tracker[message.author.id]["fieldlist"] = ["ArmoryName","ItemList"]                                                   
+            dm_tracker[message.author.id]["currentfield"] = 0
+            dm_tracker[message.author.id]["fielddict"] = [] 
+            dm_tracker[message.author.id]["server_id"] = message.guild.id
+            dm_tracker[message.author.id]["commandchannel"] = message.channel
+            menu = await make_simple_menu(message, "Armory", "ArmoryName")
+            response = "Please select a armory from the below list to edit:\n\n" + menu
+            await reply_message(message, "Please check your DMs for instructions on how to delete items from a armory, <@" + str(message.author.id) + ">.")
+            await direct_message(message, response)
+            
+        elif command == 'listarmory':
+            armory_name = parsed_string
+            records = await select_sql("""SELECT ArmamentList FROM Armory WHERE ArmoryName=%s;""", (armory_name,))
+            if not records:
+                await reply_message(message, "No armory found by that name!")
+                return
+            for row in records:
+                items = row[0]
+            response = "**ARMAMENTS FOR ARMORY " + parsed_string + "**\n\n"   
+            item_list = items.split(',')
+            for item in item_list:
+                item_record = await select_sql("""SELECT ArmamentName FROM Armaments WHERE Id=%s""",(item,))
+                for item_name in item_record:
+                    response = response + item_name[0] + "\n"
+            await reply_message(message, response)
+        elif command == 'listarmories':
+            if message.author.id not in dm_tracker.keys():
+                await initialize_dm(message.author.id)           
+            dm_tracker[message.author.id]["server_id"] = message.guild.id
+            response = "**ARMORIES**\n\n"
+            menu = await make_simple_menu(message, "Armory", "ArmoryName")
+            await reply_message(message, response + menu)            
         elif command == 'listspell':
             if not parsed_string:
                 await reply_message(message, "No spell name specified!")
@@ -2873,6 +3617,24 @@ async def on_message(message):
             
             await direct_message(message, "You have requested a new item! Please type in the response the **name of the item**, and then enter each field as a reply to the DMs. When you have filled out all fields, the item will be created!")
 
+        elif command == 'newarmament':
+            if not role_check(guild_settings[message.guild.id]["AdminRole"], message.author):
+                await reply_message(message, "You must be a member of the admin role to create new armaments!")
+                return
+            
+            if message.author.id not in dm_tracker.keys():
+                await initialize_dm(message.author.id)
+            # CREATE TABLE Armaments (Id int auto_increment, ArmamentName VARCHAR(100), ServerId VARCHAR(40), UserId VARCHAR(40), Description TEXT, Slot VARCHAR(20) MinimumLevel Int, DamageMin Int, DamageMax Int, Defense Int, StatMod VARCHAR(30), PRIMARY KEY(Id))
+            dm_tracker[message.author.id]["currentcommand"] = 'newarmament'
+            dm_tracker[message.author.id]["fieldlist"] = ["ArmamentName","Description","ArmamentCost","Slot","MinimumLevel","DamageMin","DamageMax","Defense","StatMod","Modifier"]                                                   
+            dm_tracker[message.author.id]["currentfield"] = 0
+            dm_tracker[message.author.id]["fielddict"] = [] 
+            dm_tracker[message.author.id]["server_id"] = message.guild.id
+            dm_tracker[message.author.id]["commandchannel"] = message.channel
+            
+            await reply_message(message, "Please check your DMs for instructions on how to create a new armament, <@" + str(message.author.id) + ">.")
+            
+            await direct_message(message, "You have requested a new item! Please type in the response the **name of the armament**, and then enter each field as a reply to the DMs. When you have filled out all fields, the armamement will be created!")
 
         elif command == 'deletespell':
             if not role_check(guild_settings[message.guild.id]["AdminRole"], message.author):
@@ -2990,43 +3752,51 @@ async def on_message(message):
             await direct_message(message, response)
             await reply_message(message, "Please check your DMs for instructions on how to give a melee attack, <@" + str(message.author.id) + ">.")                
             
-            
+        elif command == 'givearmament':
+            if not role_check(guild_settings[message.guild.id]["GameModeratorRole"], message.author):
+                await reply_message(message, "You must be a member of the GM role to give melee attacks!")
+                return 
+  
+             
+
+            if message.author.id not in dm_tracker.keys():
+                await initialize_dm(message.author.id)
+            dm_tracker[message.author.id]["fieldlist"] = ["Character","Armament"]
+            dm_tracker[message.author.id]["currentfield"] = 0
+            dm_tracker[message.author.id]["fielddict"]= []
+            dm_tracker[message.author.id]["currentcommand"] = 'givearmament'
+            dm_tracker[message.author.id]["server_id"] = message.guild.id
+            dm_tracker[message.author.id]["commandchannel"] = message.channel
+            dm_tracker[message.author.id]["parameters"] = parsed_string
+            counter = 0
+            menu = await make_simple_menu(message, "CharacterProfiles", "CharacterName")
+            response = "Pick a character to add a melee attack to:\n\nPlease choose a character by selecting the IDs.\n" + menu
+            await direct_message(message, response)
+            await reply_message(message, "Please check your DMs for instructions on how to give an armament, <@" + str(message.author.id) + ">.")              
 
         elif command == 'giveitem':
             if not role_check(guild_settings[message.guild.id]["GameModeratorRole"], message.author):
-                await reply_message(message, "You must be a member of the GM role to give items!")
-                return
-            name_re = re.compile(r"Character: (?P<name>.+)",re.IGNORECASE)
-            item_re = re.compile(r"Item: (?P<itemname>.+)", re.IGNORECASE)
-            
-            for line in parsed_string.split('\n'):
-                m = name_re.search(line)
-                if m:
-                    char_name = m.group('name')
-                    
-                m = item_re.search(line)
-                if m:
-                    item_name = m.group('itemname')
+                await reply_message(message, "You must be a member of the GM role to give melee attacks!")
+                return 
+  
+             
 
-            records = await select_sql("""SELECT Id FROM CharacterProfiles WHERE ServerId=%s AND CharacterName=%s ;""",(str(message.guild.id), char_name))
-            if not records:
-                await reply_message(message, "No character found with that name!")
-                return
-            for row in records:
-                char_id = row[0]
-                
-            records = await select_sql("""Select Id FROM Equipment WHERE ServerId=%s AND EquipmentName=%s""",(str(message.guild.id), item_name))
-            if not records:
-                await reply_message(message, "No spell found with that name!")
-                return
-            for row in records:
-                item_id = row[0]
-                
-            result = await commit_sql("""INSERT INTO Inventory (ServerId, UserId, CharacterId, EquipmentId) VALUES (%s, %s, %s, %s);""", (str(message.guild.id), str(message.author.id), char_id, item_id))
-            if result:
-                await reply_message(message, char_name + " can now use the item " + item_name + "!")
-            else:
-                await reply_message(message, "Database error!")                    
+            if message.author.id not in dm_tracker.keys():
+                await initialize_dm(message.author.id)
+            dm_tracker[message.author.id]["fieldlist"] = ["Character","Item"]
+            dm_tracker[message.author.id]["currentfield"] = 0
+            dm_tracker[message.author.id]["fielddict"]= []
+            dm_tracker[message.author.id]["currentcommand"] = 'giveitem'
+            dm_tracker[message.author.id]["server_id"] = message.guild.id
+            dm_tracker[message.author.id]["commandchannel"] = message.channel
+            dm_tracker[message.author.id]["parameters"] = parsed_string
+            counter = 0
+            menu = await make_simple_menu(message, "CharacterProfiles", "CharacterName")
+            response = "Pick a character to add a melee attack to:\n\nPlease choose a character by selecting the IDs.\n" + menu
+            await direct_message(message, response)
+            await reply_message(message, "Please check your DMs for instructions on how to give an item, <@" + str(message.author.id) + ">.")  
+
+                    
         elif command == 'givespell':
             if not role_check(guild_settings[message.guild.id]["GameModeratorRole"], message.author):
                 await reply_message(message, "You must be a member of the GM role to give spells!")
@@ -3096,7 +3866,35 @@ async def on_message(message):
             response = "Pick a character to add a spell to:\n\nPlease choose a character by selecting the IDs.\n" + menu
             await direct_message(message, response)
             await reply_message(message, "Please check your DMs for instructions on how to take a spell, <@" + str(message.author.id) + ">.")
+        elif command == 'editarmament':
+            if not role_check(guild_settings[message.guild.id]["AdminRole"], message.author):
+                await reply_message(message, "You must be a member of the admin role to edit armaments!")
+                return
+            user_id = message.author.id
+            server_id = message.guild.id
+                
+            current_fields = await select_sql("""SELECT ArmamentName,Description,ArmamentCost,Slot,MinimumLevel,DamageMin,DamageMax,Defense,StatMod,Modifier FROM Armaments WHERE ServerId=%s AND ArmamentName%s;""", (str(message.guild.id), parsed_string))
+            if not current_fields:
+                await reply_message(message, "No armament found by that name!")
+                return
+          
+            if message.author.id not in dm_tracker.keys():
+                await initialize_dm(message.author.id)
+            dm_tracker[message.author.id]["fieldlist"] = ["ArmamentName","Description","ArmamentCost","Slot","MinimumLevel","DamageMin","DamageMax","Defense","StatMod","Modifier"]
+            dm_tracker[message.author.id]["currentfield"] = 0
+            dm_tracker[message.author.id]["fielddict"]= []
+            dm_tracker[message.author.id]["currentcommand"] = 'editarmament'
+            dm_tracker[message.author.id]["server_id"] = message.guild.id
+            dm_tracker[message.author.id]["commandchannel"] = message.channel
+            dm_tracker[message.author.id]["parameters"] = parsed_string
+            counter = 0
+            for row in dm_tracker[message.author.id]["fieldlist"]:
+                dm_tracker[message.author.id]["fielddict"].append(current_fields[0][counter])
+                counter = counter + 1
             
+            await reply_message(message, "Please check your DMs for instructions on how to edit an armament, <@" + str(message.author.id) + ">.")
+            
+            await direct_message(message, "You have requested to edit the armament **" + parsed_string + "**. Please type in the response the answer to each field to update, or *skip* to leave as is. When you have filled out all fields, the armament will be updated!\nThe first field is **" + dm_tracker[message.author.id]["fieldlist"][0] + "** and its current value is **" + dm_tracker[message.author.id]["fielddict"][0] + "**.")            
         elif command == 'edititem':
             if not role_check(guild_settings[message.guild.id]["AdminRole"], message.author):
                 await reply_message(message, "You must be a member of the admin role to edit equipment!")
@@ -3127,7 +3925,51 @@ async def on_message(message):
             
             await direct_message(message, "You have requested to edit the item **" + parsed_string + "**. Please type in the response the answer to each field to update, or *skip* to leave as is. When you have filled out all fields, the item will be updated!\nThe first field is **" + dm_tracker[message.author.id]["fieldlist"][0] + "** and its current value is **" + dm_tracker[message.author.id]["fielddict"][0] + "**.")                
 
-
+        elif command == 'deletearmament':
+            if not role_check(guild_settings[message.guild.id]["AdminRole"], message.author):
+                await reply_message(message, "You must be a member of the admin role to delete equipment!")
+                return        
+            if not parsed_string:
+                await reply_message(message, "You didn't specify an armament name!")
+                return
+            records = await select_sql("""SELECT Id FROM Equipment WHERE ArmamentName=%s AND ServerId=%s;""", (parsed_string,str(message.guild.id)))
+            
+            if not records:
+                await reply_message(message, "No armament found by that name!")
+                return 
+            for row in records:
+                item_id = row[0]
+                
+            result = await commit_sql("""DELETE FROM Armament WHERE Id=%s;""", (item_id,))
+            if result:
+                await reply_message(message, "Armament removed from game and inventory successfully.")
+            else:
+                await reply_message(message, "Database error!")
+                
+        elif command == 'deletearmament':
+            if not role_check(guild_settings[message.guild.id]["AdminRole"], message.author):
+                await reply_message(message, "You must be a member of the admin role to delete equipment!")
+                return        
+            if not parsed_string:
+                await reply_message(message, "You didn't specify an equipment name!")
+                return
+            records = await select_sql("""SELECT Id FROM Armaments WHERE ArmamentName=%s AND ServerId=%s;""", (parsed_string,str(message.guild.id)))
+            
+            if not records:
+                await reply_message(message, "No item found by that name!")
+                return 
+            for row in records:
+                item_id = row[0]
+                
+            result = await commit_sql("""DELETE FROM Armaments WHERE Id=%s;""", (item_id,))
+            if result:
+                result_remove = await commit_sql("""DELETE FROM ArmamentInventory WHERE ServerId=%s AND ArmamentId=%s;""",(str(message.guild.id),item_id))
+                if result_remove:
+                    await reply_message(message, "Armament removed from game and inventory successfully.")
+                else:
+                    await reply_message(message, "Database error!")
+            else:
+                await reply_message(message, "Database error!")
         elif command == 'deleteitem':
             if not role_check(guild_settings[message.guild.id]["AdminRole"], message.author):
                 await reply_message(message, "You must be a member of the admin role to delete equipment!")
@@ -3172,8 +4014,26 @@ async def on_message(message):
             menu = await make_less_simple_menu(message, "CharacterProfiles", "CharacterName", "UserId", str(message.author.id))
             response = response + menu
             await direct_message(message, "Please select a character to purchase the item for by replying with the ID in bold.\n\n" + response)
-            await reply_message(message, "Please check your DMs for instructions on how to edit an item, <@" + str(message.author.id) + ">.")
+            await reply_message(message, "Please check your DMs for instructions on how to buy an item, <@" + str(message.author.id) + ">.")
+        elif command == 'buyarms':
+            if not role_check(guild_settings[message.guild.id]["PlayerRole"], message.author):
+                await reply_message(message, "You must be a member of the player role to buy armaments!")
+                return
             
+            if message.author.id not in dm_tracker.keys():
+                await initialize_dm(message.author.id)
+            dm_tracker[message.author.id]["currentcommand"] = 'buyarms'
+            dm_tracker[message.author.id]["server_id"] = message.guild.id
+            dm_tracker[message.author.id]["commandchannel"] = message.channel
+            dm_tracker[message.author.id]["parameters"] = ""
+            dm_tracker[message.author.id]["fieldlist"] = ["CharId","VendorId","ItemId"]
+            dm_tracker[message.author.id]["currentfield"] = 0
+            dm_tracker[message.author.id]["fielddict"] = []
+            response = "**YOUR CHARACTERS**\n\n"
+            menu = await make_less_simple_menu(message, "CharacterProfiles", "CharacterName", "UserId", str(message.author.id))
+            response = response + menu
+            await direct_message(message, "Please select a character to purchase the item for by replying with the ID in bold.\n\n" + response)
+            await reply_message(message, "Please check your DMs for instructions on how to buy armaments, <@" + str(message.author.id) + ">.")            
             
 
         elif command == 'myitems':
@@ -3255,6 +4115,24 @@ async def on_message(message):
 
             await direct_message(message, "Please select a character to trade the item from by replying with the ID in bold.\n\n" + menu)
             await reply_message(message, "Please check your DMs for instructions on how to trade an item, <@" + str(message.author.id) + ">.")  
+        elif command == 'tradearms':
+            if not role_check(guild_settings[message.guild.id]["PlayerRole"], message.author):
+                await reply_message(message, "You must be a member of the player role to check inventory!")
+                return  
+
+            if message.author.id not in dm_tracker.keys():
+                await initialize_dm(message.author.id)
+            dm_tracker[message.author.id]["currentcommand"] = 'tradearms'
+            dm_tracker[message.author.id]["server_id"] = message.guild.id
+            dm_tracker[message.author.id]["commandchannel"] = message.channel
+            dm_tracker[message.author.id]["parameters"] = ""
+            dm_tracker[message.author.id]["fieldlist"] = ["CharId","ItemId","TargetId"]
+            dm_tracker[message.author.id]["currentfield"] = 0
+            dm_tracker[message.author.id]["fielddict"] = []
+            menu = await make_less_simple_menu(message, "CharacterProfiles", "CharacterName", "UserId", str(message.author.id))
+
+            await direct_message(message, "Please select a character to trade the item from by replying with the ID in bold.\n\n" + menu)
+            await reply_message(message, "Please check your DMs for instructions on how to trade an item, <@" + str(message.author.id) + ">.")              
         elif command == 'listitems':
             records = await select_sql("""SELECT EquipmentName FROM Equipment WHERE ServerId=%s;""", (str(message.guild.id),))
             if not records:
@@ -3263,7 +4141,16 @@ async def on_message(message):
             response = "**SERVER ITEM LIST**\n\n"
             for row in records:
                 response = response + row[0] + "\n"
-            await reply_message(message, response)        
+            await reply_message(message, response)
+        elif command == 'listarmaments':
+            records = await select_sql("""SELECT ArmamentName FROM Armaments WHERE ServerId=%s;""", (str(message.guild.id),))
+            if not records:
+                await reply_message(message, "This server does not have any armaments yet!")
+                return
+            response = "**SERVER ARMAMENT LIST**\n\n"
+            for row in records:
+                response = response + row[0] + "\n"
+            await reply_message(message, response)             
         elif command == 'sell':
             if not role_check(guild_settings[message.guild.id]["PlayerRole"], message.author):
                 await reply_message(message, "You must be a member of the player role to sell equipment!")
@@ -3281,8 +4168,27 @@ async def on_message(message):
             response = "**YOUR CHARACTERS**\n\n"
             menu = await make_less_simple_menu(message, "CharacterProfiles", "CharacterName", "UserId", str(message.author.id))
             response = response + menu
-            await direct_message(message, "Please select a character to purchase the item for by replying with the ID in bold.\n\n" + response)
-            await reply_message(message, "Please check your DMs for instructions on how to sell an item, <@" + str(message.author.id) + ">.")    
+            await direct_message(message, "Please select a character to sell the item for by replying with the ID in bold.\n\n" + response)
+            await reply_message(message, "Please check your DMs for instructions on how to sell an item, <@" + str(message.author.id) + ">.")  
+        elif command == 'sellarms':
+            if not role_check(guild_settings[message.guild.id]["PlayerRole"], message.author):
+                await reply_message(message, "You must be a member of the player role to sell armaments!")
+                return
+
+            if message.author.id not in dm_tracker.keys():
+                await initialize_dm(message.author.id)
+            dm_tracker[message.author.id]["currentcommand"] = 'sellarms'
+            dm_tracker[message.author.id]["server_id"] = message.guild.id
+            dm_tracker[message.author.id]["commandchannel"] = message.channel
+            dm_tracker[message.author.id]["parameters"] = ""
+            dm_tracker[message.author.id]["fieldlist"] = ["CharId","VendorId","ItemId"]
+            dm_tracker[message.author.id]["currentfield"] = 0
+            dm_tracker[message.author.id]["fielddict"] = []
+            response = "**YOUR CHARACTERS**\n\n"
+            menu = await make_less_simple_menu(message, "CharacterProfiles", "CharacterName", "UserId", str(message.author.id))
+            response = response + menu
+            await direct_message(message, "Please select a character to sell the armament for by replying with the ID in bold.\n\n" + response)
+            await reply_message(message, "Please check your DMs for instructions on how to sell an armament, <@" + str(message.author.id) + ">.")                
         elif command == 'buff':
             if not role_check(guild_settings[message.guild.id]["PlayerRole"], message.author):
                 await reply_message(message, "You must be a member of the player role to use buffs!")
@@ -3468,8 +4374,54 @@ async def on_message(message):
             await reply_message(message, "<@" + str(message.author.id) + "> , check your DMs for how to use the item.")
 
  
-            
-            
+        elif command == 'getcharequipped':
+            char_name = parsed_string
+            if not parsed_string:
+                await reply_message(message, "No character name specified!")
+                return
+            records = await select_sql("""SELECT Id FROM CharacterProfiles WHERE CharacterName=%s AND ServerId=%s;""",(char_name,str(message.guild.id)))
+            if not records:
+                await reply_message(message, "No character found by that name!")
+            for row in records:
+                char_id = str(row[0])
+            records = await select_sql("""SELECT IFNULL(HeadId,'0'), IFNULL(LeftHandId,'0'), IFNULL(RightHandId,'0'), IFNULL(ChestId,'0'), IFNULL(FeetId,'0') FROM CharacterArmaments WHERE CharacterId=%s;""",(char_id,))
+            for row in records:
+                head_id = row[0]
+                left_id = row[1]
+                right_id = row[2]
+                chest_id = row[3]
+                feet_id = row[4]
+            if not records:
+                await direct_message(message, "This character has nothing equipped!")
+                return
+            records = await select_sql("""SELECT ArmamentName FROM Armaments WHERE Id=%s;""", (head_id,))
+            for row in records:
+                head_name = row[0]
+            try: head_name
+            except: head_name = "None"
+            records = await select_sql("""SELECT ArmamentName FROM Armaments WHERE Id=%s;""", (left_id,))
+            for row in records:
+                left_name = row[0]
+            try: left_name
+            except: left_name = "None"
+            records = await select_sql("""SELECT ArmamentName FROM Armaments WHERE Id=%s;""", (right_id,))
+            for row in records:
+                right_name = row[0]
+            try: right_name
+            except: right_name = "None"
+            records = await select_sql("""SELECT ArmamentName FROM Armaments WHERE Id=%s;""", (chest_id,))
+            for row in records:
+                chest_name = row[0]
+            try: chest_name
+            except: chest_name = "None"
+            records = await select_sql("""SELECT ArmamentName FROM Armaments WHERE Id=%s;""", (feet_id,))
+            for row in records:
+                feet_name = row[0]
+            try: feet_name
+            except: feet_name = "None"
+
+            menu = "Current Armaments Equipped\n\nHead: **" +head_id + "** - " + head_name + "\nLeftHand: **" + left_id + "** - " + left_name + "\nRightHand: **" + right_id +  "** - " + right_name + "\nChest: **" + chest_id + "** - " + chest_name + "\nFeet: **" + feet_id + "** - " + feet_name +"\n"
+            await reply_message(message, menu)
         elif command == 'getnpctemplate':
             response = "**NEW NPC TEMPLATE**\n\n=newnpc Name: \nShortcut: \nPicture Link: \n"
             await reply_message(message, response)
@@ -3521,6 +4473,58 @@ async def on_message(message):
             response = "Please select a character by replying to this DM with the character ID to give currency to:\n\n" + menu
             await direct_message(message, response)
             await reply_message(message, "Please check your DMs for instructions on how to grant currency, <@" + str(message.author.id) + ">.")
+        elif command == 'equiparmament':
+            if not role_check(guild_settings[message.guild.id]["PlayerRole"], message.author):
+                await reply_message(message, "You must be a member of the Plaer role to equip armaments!")
+                return        
+
+            if message.author.id not in dm_tracker.keys():
+                await initialize_dm(message.author.id)
+            dm_tracker[message.author.id]["currentcommand"] = 'equiparmament'
+            dm_tracker[message.author.id]["fieldlist"] = ["CharacterId","ArmamentId","Slot"]                                                   
+            dm_tracker[message.author.id]["currentfield"] = 0
+            dm_tracker[message.author.id]["fielddict"] = [] 
+            dm_tracker[message.author.id]["server_id"] = message.guild.id
+            dm_tracker[message.author.id]["commandchannel"] = message.channel
+            records = await select_sql("""SELECT Id,CharacterName FROM CharacterProfiles WHERE ServerId=%s AND UserId=%s;""", (str(message.guild.id), str(message.author.id)))
+            if not records:
+                await reply_message(message, "No characters found for you!")
+                return
+            character_list = "**YOUR CHARACTERS**\n\n"    
+            for row in records:
+                char_id = row[0]
+                char_name = row[1]
+                character_list = character_list + "**" + str(char_id) + "** " + char_name + "\n"
+            
+            response = "Please select a character by replying to this DM with the character ID to equip an armament:\n\n" + character_list
+            await direct_message(message, response)
+            await reply_message(message, "Please check your DMs for instructions on how to equip armaments, <@" + str(message.author.id) + ">.")
+        elif command == 'unequiparmament':
+            if not role_check(guild_settings[message.guild.id]["PlayerRole"], message.author):
+                await reply_message(message, "You must be a member of the Player role to unequip armaments!")
+                return        
+
+            if message.author.id not in dm_tracker.keys():
+                await initialize_dm(message.author.id)
+            dm_tracker[message.author.id]["currentcommand"] = 'unequiparmament'
+            dm_tracker[message.author.id]["fieldlist"] = ["CharacterId","ArmamentId","Slot"]                                                   
+            dm_tracker[message.author.id]["currentfield"] = 0
+            dm_tracker[message.author.id]["fielddict"] = [] 
+            dm_tracker[message.author.id]["server_id"] = message.guild.id
+            dm_tracker[message.author.id]["commandchannel"] = message.channel
+            records = await select_sql("""SELECT Id,CharacterName FROM CharacterProfiles WHERE ServerId=%s AND UserId=%s;""", (str(message.guild.id), str(message.author.id)))
+            if not records:
+                await reply_message(message, "No characters found for you!")
+                return
+            character_list = "**YOUR CHARACTERS**\n\n"    
+            for row in records:
+                char_id = row[0]
+                char_name = row[1]
+                character_list = character_list + "**" + str(char_id) + "** " + char_name + "\n"
+            
+            response = "Please select a character by replying to this DM with the character ID to equip an armament:\n\n" + character_list
+            await direct_message(message, response)
+            await reply_message(message, "Please check your DMs for instructions on how to equip armaments, <@" + str(message.author.id) + ">.")
 
         elif command == 'newmonster':
             if not role_check(guild_settings[message.guild.id]["GameModeratorRole"], message.author):
@@ -3605,6 +4609,18 @@ async def on_message(message):
             response = "**ITEM DATA**\n\n"
             for row in records:
                 response = response + "Name: " + parsed_string + "\nDescription: " + row[0] + "\nPrice: " + str(row[1]) + "\nMinimum Level: " + str(row[2]) + "\nStat Modified: " + str(row[3]) + "\nModifier Change: " + str(row[4]) + "\n"
+            await reply_message(message, response)
+        elif command == 'listarmament':
+            if not parsed_string:
+                await reply_message(message, "No item name specified!")
+                return
+            records = await select_sql("""SELECT Description, ArmamentCost, MinimumLevel, StatMod, Modifier, Slot, DamageMin, DamageMax, Defense FROM Armaments WHERE ServerId=%s AND ArmamentName=%s;""", (str(message.guild.id),parsed_string))
+            if not records:
+                await reply_message(message, "No armament found with that name!")
+                return
+            response = "**ARMAMENT DATA**\n\n"
+            for row in records:
+                response = response + "Name: " + parsed_string + "\nDescription: " + row[0] + "\nPrice: " + str(row[1]) + "\nMinimum Level: " + str(row[2]) + "\nStat Modified: " + str(row[3]) + "\nModifier Change: " + str(row[4]) + "\nSlot: " + row[5] + "\nMinimum Damage: " + str(row[6]) + "\nMaximum Damage: " + str(row[7]) + "\nDefense: " + str(row[8]) + "\n"
             await reply_message(message, response)
         elif command == 'listspell':
             if not parsed_string:
@@ -3723,8 +4739,8 @@ async def on_message(message):
             if not all_players_ready:
                 response = "Not all players have confirmed. The following players need to confirm spar participation: "
                 for user in mass_spar_confirm[message.guild.id]:
-                    if not mass_spar_chars[message.guild.id][user]["Confirm"]:
-                        response = response + "<@" + str(user) + ">, "
+                    if not mass_spar_confirm[message.guild.id][user.id]["Confirm"]:
+                        response = response + "<@" + str(user.id) + ">, "
                 await reply_message(message, response)
                 return
             all_players_setchar = True
@@ -3773,8 +4789,32 @@ async def on_message(message):
             response = "Please select a spell from the list of your character's spells below by replying with the ID in bold:\n\n" + menu
             await direct_message(message, response)
             await reply_message(message, "<@" + str(message.author.id) + "> , please see your DMs for instructions on how to cast a spell.")
-            
 
+        elif command == 'getchararms':
+            char_name = parsed_string
+            if not char_name:
+                await reply_message(message, "No character specified!")
+                return
+            if message.author.id not in dm_tracker.keys():
+                await initialize_dm(message.author.id)
+            dm_tracker[message.author.id]["fieldlist"] = []
+            dm_tracker[message.author.id]["currentfield"] = 0
+            dm_tracker[message.author.id]["fielddict"]= []
+            dm_tracker[message.author.id]["currentcommand"] = 'castspar'
+            dm_tracker[message.author.id]["server_id"] = message.guild.id
+            dm_tracker[message.author.id]["commandchannel"] = message.channel
+            dm_tracker[message.author.id]["parameters"] = parsed_string
+            records = await select_sql("""SELECT Id FROM CharacterProfiles WHERE ServerId=%s AND CharacterName=%s;""",(str(message.guild.id), parsed_string))
+            if not records:
+                await reply_message(message, "No character found by that name!")
+                return
+            for row in records:
+                char_id = row[0]
+            menu = await make_menu(message,"ArmamentInventory","Armaments","ArmamentId","CharacterId","ArmamentName", str(char_id))
+            if menu == 'Menu error!':
+                menu = "No armaments found."
+            response = "**CHARACTER ARMAMENT INVENTORY:**\n\n" + menu             
+            await reply_message(message, response)
 
         elif command == 'meleespar':
             server_id = message.guild.id
@@ -3808,6 +4848,57 @@ async def on_message(message):
             await direct_message(message, response)
             await reply_message(message, "<@" + str(message.author.id) + "> , please see your DMs for instructions on how to attack.")
 
+        elif command == 'weaponspar':
+            server_id = message.guild.id
+            user_id = message.author.id
+            if not role_check(guild_settings[message.guild.id]["PlayerRole"], message.author):
+                await reply_message(message, "You must be a member of the player role to use melee attacks!")
+                return            
+            if not mass_spar_event[server_id]:
+                await reply_message(message, "Why are you casting Magic Missile? There's nothing to attack here!")
+                return
+
+            in_party = next((item for item in mass_spar[server_id] if item.id == user_id), None)
+            if not in_party:
+                await reply_message(message, "You are not in the spar group!")
+                return
+            if message.author != list(mass_spar[server_id])[mass_spar_turn[server_id]]:
+                await reply_message(message, "It's not your turn!")
+                return
+            
+            if message.author.id not in dm_tracker.keys():
+                await initialize_dm(message.author.id)
+            dm_tracker[message.author.id]["fieldlist"] = ["AttackId","Target"]
+            dm_tracker[message.author.id]["currentfield"] = 0
+            dm_tracker[message.author.id]["fielddict"]= []
+            dm_tracker[message.author.id]["currentcommand"] = 'weaponspar'
+            dm_tracker[message.author.id]["server_id"] = message.guild.id
+            dm_tracker[message.author.id]["commandchannel"] = message.channel
+            dm_tracker[message.author.id]["parameters"] = parsed_string
+            records = await select_sql("SELECT IFNULL(LeftHandId,'None'),IFNULL(RightHandId,'None') FROM CharacterArmaments Where CharacterId=%s;", (str(mass_spar_chars[server_id][user_id]["CharId"]),))
+            if not records:
+                await reply_message(message, "Your character has no armaments equipped!")
+                return
+            for row in records:
+                left_hand = row[0]
+                right_hand = row[1]
+            if left_hand == 'None' and right_hand == 'None':
+                await reply_message(message, "Your character has no armaments equipped!")
+                return
+            records = await select_sql("""SELECT ArmamentName FROM Armaments WHERE Id=%s;""", (left_hand,))
+            for row in records:
+                left_name = row[0]
+            records = await select_sql("""SELECT ArmamentName FROM Armaments WHERE Id=%s;""", (right_hand,))
+            for row in records:
+                right_name = row[0]
+            try: left_name
+            except: left_name = 'None'
+            try: right_name
+            except: right_name = 'None'
+            menu = "Armaments Equipped:\n\n" + left_hand + " - " + left_name + "\n" + right_hand + " - " + right_name
+            response = "Please select an armament from the list of your character's equipment below by replying with the ID in bold:\n\n" + menu
+            await direct_message(message, response)
+            await reply_message(message, "<@" + str(message.author.id) + "> , please see your DMs for instructions on how to attack.")
 
         elif command == 'setsparchar':
             if not role_check(guild_settings[message.guild.id]["PlayerRole"], message.author):
@@ -3937,7 +5028,7 @@ async def on_message(message):
                 await reply_message(message, "You must be a member of the player role to cast spells!")
                 return            
             if not server_encounters[server_id]:
-                await reply_message(message, "Why are you casting " + parsed_string + "? There's nothing to attack here!")
+                await reply_message(message, "Why are you casting Magic Missile? There's nothing to attack here!")
                 return
 
             in_party = next((item for item in server_party[server_id] if item.id == user_id), None)
@@ -3947,7 +5038,7 @@ async def on_message(message):
             if message.author != list(server_party[server_id])[encounter_turn[server_id]]:
                 await reply_message(message, "It's not your turn!")
                 return
-            menu = await make_menu(message,"MeleeSkills","Melee","MeleeId","CharacterId","AttackName", str(server_party_chars[server_id][user_id]["CharId"]))
+
             if message.author.id not in dm_tracker.keys():
                 await initialize_dm(message.author.id)
             dm_tracker[message.author.id]["fieldlist"] = ["MeleeId"]
@@ -3957,11 +5048,61 @@ async def on_message(message):
             dm_tracker[message.author.id]["server_id"] = message.guild.id
             dm_tracker[message.author.id]["commandchannel"] = message.channel
             dm_tracker[message.author.id]["parameters"] = parsed_string
+            menu = await make_menu(message,"MeleeSkills","Melee","MeleeId","CharacterId","AttackName", str(server_party_chars[server_id][user_id]["CharId"]))
             response = "Please select a spell from the list of your character's attacks below by replying with the ID in bold:\n\n" + menu
             await direct_message(message, response)
             await reply_message(message, "<@" + str(message.author.id) + "> , please see your DMs for instructions on how to attack.")
 
+        elif command == 'weaponmonster':
+            server_id = message.guild.id
+            user_id = message.author.id
+            if not role_check(guild_settings[message.guild.id]["PlayerRole"], message.author):
+                await reply_message(message, "You must be a member of the player role to cast spells!")
+                return            
+            if not server_encounters[server_id]:
+                await reply_message(message, "Why are you casting Magic Missle? There's nothing to attack here!")
+                return
 
+            in_party = next((item for item in server_party[server_id] if item.id == user_id), None)
+            if not in_party:
+                await reply_message(message, "You are not in the server party!")
+                return
+            if message.author != list(server_party[server_id])[encounter_turn[server_id]]:
+                await reply_message(message, "It's not your turn!")
+                return
+            if message.author.id not in dm_tracker.keys():
+                await initialize_dm(message.author.id)
+            dm_tracker[message.author.id]["fieldlist"] = ["ArmamentId"]
+            dm_tracker[message.author.id]["currentfield"] = 0
+            dm_tracker[message.author.id]["fielddict"]= []
+            dm_tracker[message.author.id]["currentcommand"] = 'weaponmonster'
+            dm_tracker[message.author.id]["server_id"] = message.guild.id
+            dm_tracker[message.author.id]["commandchannel"] = message.channel
+            dm_tracker[message.author.id]["parameters"] = parsed_string
+            records = await select_sql("SELECT IFNULL(LeftHandId,'None'),IFNULL(RightHandId,'None') FROM CharacterArmaments Where CharacterId=%s;", (str(server_party_chars[server_id][user_id]["CharId"]),))
+            if not records:
+                await reply_message(message, "Your character has no armaments equipped!")
+                return
+            for row in records:
+                left_hand = row[0]
+                right_hand = row[1]
+            if left_hand == 'None' and right_hand == 'None':
+                await reply_message(message, "Your character has no armaments equipped!")
+                return
+            records = await select_sql("""SELECT ArmamentName FROM Armaments WHERE Id=%s;""", (left_hand,))
+            for row in records:
+                left_name = row[0]
+            records = await select_sql("""SELECT ArmamentName FROM Armaments WHERE Id=%s;""", (right_hand,))
+            for row in records:
+                right_name = row[0]
+            try: left_name
+            except: left_name = 'None'
+            try: right_name
+            except: right_name = 'None'
+            menu = "Armaments Equipped:\n\n" + left_hand + " - " + left_name + "\n" + right_hand + " - " + right_name
+            response = "Please select an armament from the list of your character's equipment below by replying with the ID in bold:\n\n" + menu
+            await direct_message(message, response)
+            await reply_message(message, "<@" + str(message.author.id) + "> , please see your DMs for instructions on how to attack.")
         elif command == 'getmonstertemplate':
             response = "***NEW MONSTER TEMPLATE***\n\n=newmonster Monster Name: \nDescription: \nHealth: \nLevel: \nAttack: \nDefense: \nElement: \nMagic Power: \nPicture Link: \n"
             await reply_message(message, response)
@@ -4326,4 +5467,4 @@ async def on_message(message):
             await reply_message(message,"`Click here to invite RP Mastermind:` https://discordapp.com/api/oauth2/authorize?client_id=691353869841596446&permissions=805829696&scope=bot")
         else:
             pass        
-client.run('REDACTED')
+client.run('')
