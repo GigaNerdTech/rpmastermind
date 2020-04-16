@@ -191,15 +191,19 @@ async def update_table(message, table_name):
     server_id = dm_tracker[message.author.id]["server_id"]    
     update_entry = "UPDATE " + table_name + " SET UserId=%s, "
     update_tuple = (str(message.author.id),)
-    counter = 1 
-    for field in field_list[1:]:
+    counter = 0
+    for field in field_list:
         update_entry = update_entry + field + "=%s, "
         update_tuple = update_tuple + (str(field_dict[counter]),)
         counter = counter + 1 
-         
+    if dm_tracker[message.author.id]["parameters"] is None:
+        field_value = field_dict[0]
+    else:
+        field_value = dm_tracker[message.author.id]["parameters"]
+        
     update_entry = re.sub(r", $","", update_entry)
     update_entry = update_entry + " WHERE ServerId=%s AND " + field_list[0] + "=%s;"
-    update_tuple = update_tuple + (str(dm_tracker[message.author.id]["server_id"]), field_dict[0])
+    update_tuple = update_tuple + (str(dm_tracker[message.author.id]["server_id"]), field_value)
 
     result = await commit_sql(update_entry, update_tuple)
     return result
@@ -271,37 +275,59 @@ async def on_ready():
         npc_aliases[guild.id] = { }
         fallen_chars[guild.id] = { }
         encounter_turn[guild.id] = 0
-        
         for user in guild.members:
             npc_aliases[guild.id][user.id] = { }
+            
             available_points[guild.id][user.id] ={}
             for channel in guild.text_channels:
                 npc_aliases[guild.id][user.id][channel.id] = ""
     # GMRole,NPCRole,PlayerRole,GuildBankBalance,StartingHealth,StartingMana,StartingStamina,StartingAttack,StartingDefense,StartingMagicAttack,StartingAgility,StartingIntellect,StartingCharisma,HealthLevelRatio,ManaLevelRatio,StaminaLevelRatio,XPLevelRatio,HealthAutoHeal,ManaAutoHeal,StaminaAutoHeal
     # ALTER TABLE GuildSettings ADD COLUMN StartingHealth Int, StartingMana Int, StartingStamina Int, StartingAttack Int, StartingDefense Int, StartingMagicAttack Int, StartingAgility Int, StartingIntellect Int, StartingCharisma Int, HealthLevelRatio Int, ManaLevelRatio Int, StaminaLevelRatio Int, XPLevelRatio Int, HealthAutoHeal DECIMAL(1,2), ManaAutoHeal DECIMAL (1,2), StaminaAutoHeal DECIMAL(1,2);
     records = await select_sql("""SELECT ServerId,IFNULL(AdminRole,'0'),IFNULL(GameModeratorRole,'0'),IFNULL(NPCRole,'0'),IFNULL(PlayerRole,'0'),StartingHealth,StartingMana,StartingStamina,StartingAttack,StartingDefense,StartingMagicAttack,StartingAgility,StartingIntellect,StartingCharisma,HealthLevelRatio,ManaLevelRatio,StaminaLevelRatio,XPLevelRatio,HealthAutoHeal,ManaAutoHeal,StaminaAutoHeal FROM GuildSettings;""")
-    for row in records:
-        server_id = int(row[0])
-        guild_settings[server_id]["AdminRole"] = int(row[1])
-        guild_settings[server_id]["GameModeratorRole"] = int(row[2])
-        guild_settings[server_id]["NPCRole"] = int(row[3])
-        guild_settings[server_id]["PlayerRole"] = int(row[4])
-        guild_settings[server_id]["StartingHealth"] = int(row[5])
-        guild_settings[server_id]["StartingMana"] = int(row[6])
-        guild_settings[server_id]["StartingStamina"] = int(row[7])
-        guild_settings[server_id]["StartingAttack"] = int(row[8])
-        guild_settings[server_id]["StartingDefense"] = int(row[9])
-        guild_settings[server_id]["StartingMagicAttack"] = int(row[10])
-        guild_settings[server_id]["StartingAgility"] = int(row[11])
-        guild_settings[server_id]["StartingIntellect"] = int(row[12])
-        guild_settings[server_id]["StartingCharisma"] = int(row[13])
-        guild_settings[server_id]["HealthLevelRatio"] = int(row[14])
-        guild_settings[server_id]["ManaLevelRatio"] = int(row[15])
-        guild_settings[server_id]["StaminaLevelRatio"] = int(row[16])
-        guild_settings[server_id]["XPLevelRatio"] = int(row[17])
-        guild_settings[server_id]["HealthAutoHeal"] = float(row[18])
-        guild_settings[server_id]["ManaAutoHeal"] = float(row[19])
-        guild_settings[server_id]["StaminaAutoHeal"] = float(row[20])
+    if records:
+        for row in records:
+            server_id = int(row[0])
+            guild_settings[server_id] = {} 
+            if row[1] is not None:        
+                guild_settings[server_id]["AdminRole"] = int(row[1])    
+            if row[2] is not None:   
+                guild_settings[server_id]["GameModeratorRole"] = int(row[2])
+            if row[3] is not None:   
+                guild_settings[server_id]["NPCRole"] = int(row[3])
+            if row[4] is not None:   
+                guild_settings[server_id]["PlayerRole"] = int(row[4])
+            if row[5] is not None:   
+                guild_settings[server_id]["StartingHealth"] = int(row[5])
+            if row[6] is not None:   
+                guild_settings[server_id]["StartingMana"] = int(row[6])
+            if row[7] is not None:   
+                guild_settings[server_id]["StartingStamina"] = int(row[7])
+            if row[8] is not None:   
+                guild_settings[server_id]["StartingAttack"] = int(row[8])
+            if row[9] is not None:   
+                guild_settings[server_id]["StartingDefense"] = int(row[9])
+            if row[10] is not None:   
+                guild_settings[server_id]["StartingMagicAttack"] = int(row[10])
+            if row[11] is not None:   
+                guild_settings[server_id]["StartingAgility"] = int(row[11])
+            if row[12] is not None:   
+                guild_settings[server_id]["StartingIntellect"] = int(row[12])
+            if row[13] is not None:       
+                guild_settings[server_id]["StartingCharisma"] = int(row[13])
+            if row[14] is not None:   
+                guild_settings[server_id]["HealthLevelRatio"] = int(row[14])
+            if row[15] is not None:   
+                guild_settings[server_id]["ManaLevelRatio"] = int(row[15])
+            if row[16] is not None:   
+                guild_settings[server_id]["StaminaLevelRatio"] = int(row[16])
+            if row[17] is not None:   
+                guild_settings[server_id]["XPLevelRatio"] = int(row[17])
+            if row[18] is not None:   
+                guild_settings[server_id]["HealthAutoHeal"] = float(row[18])
+            if row[19] is not None:   
+                guild_settings[server_id]["ManaAutoHeal"] = float(row[19])
+            if row[20] is not None:   
+                guild_settings[server_id]["StaminaAutoHeal"] = float(row[20])
     await log_message("All SQL loaded for guilds.")
             
             
@@ -399,6 +425,10 @@ async def on_message(message):
                 await direct_message(message, "Skipping field **"  + field_list[current_field] + "** and not changing its value. The next field is **" + dm_tracker[message.author.id]["fieldlist"][current_field + 1] + "** and its value is **" + str(dm_tracker[message.author.id]["fielddict"][current_field + 1]) + "**. Reply with the new value or *skip* to leave the current value.")
                 
                 return
+            else:
+                await direct_message(message, "Setting field **"  + dm_tracker[message.author.id]["fieldlist"][current_field] + "** to **" + message.content.strip() + "**. That was the last field. Reply *end* to commit to the database.")            
+            
+
         elif current_command.startswith('edit') and current_field < len(field_list):
             dm_tracker[message.author.id]["fielddict"][current_field] = message.content.strip()
             dm_tracker[message.author.id]["currentfield"] = current_field + 1
@@ -408,12 +438,6 @@ async def on_message(message):
                 await direct_message(message, "Setting field **"  + dm_tracker[message.author.id]["fieldlist"][current_field] + "** to **" + message.content.strip() + "**. That was the last field. Reply *end* to commit to the database.")            
             
             return
-        elif current_command == 'newsetup' and current_field < len(field_list) - 1:
-            if current_field < len(field_list) - 2:
-                await direct_message(message, "Setting field **"  + dm_tracker[message.author.id]["fieldlist"][current_field] + "** to **" + message.content.strip() + "**. The next field is **" + dm_tracker[message.author.id]["fieldlist"][current_field + 1] + "** and its value is **" + str(dm_tracker[message.author.id]["fielddict"][current_field + 1]) + "**. Reply with the new value or *skip* to leave the current value.")
-            else:
-                await direct_message(message, "Setting field **"  + dm_tracker[message.author.id]["fieldlist"][current_field] + "** to **" + message.content.strip() + "**. That was the last field. Reply *end* to commit to the database.")   
-            
         elif current_command == 'newvendor' and message.content != 'end':
             if current_field == 0:
                 menu = await make_simple_menu(message, "Equipment", "EquipmentName")
@@ -485,14 +509,7 @@ async def on_message(message):
                 result = await commit_sql("""DELETE FROM CharacterProfiles WHERE ServerId=%s; DELETE FROM Vendors WHERE ServerId=%s; DELETE FROM Spells WHERE ServerId=%s; DELETE FROM Melee WHERE ServerId-%s; DELETE FROM Inventory WHERE ServerId-%s; DELETE FROM Equipment WHERE ServerId=%s; DELETE FROM MagicSkills WHERE ServerId=%s; DELETE FROM MeleeSkills WHERE ServerId=%s; DELETE FROM Monsters WHERE ServerId=%s; DELETE FROM GuildSettings WHERE ServerId=%s;""", delete_tuple)
                 await dm_tracker[message.author.id]["commandchannel"].send(">>> Server reset complete! Please run =setadminrole @adminrole followed by =newsetup to create a new setup for this server!")
                 return
-        elif current_command == 'newsetup':
-            result = await update_table(message, "GuildSettings")
-            if result:
-                await direct_message(message, "Guild settings successfully edited.")
-                await dm_tracker[message.author.id]["commandchannel"].send(">>> Guild settings successfully edited.")
-            else:
-                await direct_message(message, "Database error!")
-            return
+
         elif current_command == 'deletevendoritem':
             if current_field == 0:
                 dm_tracker[message.author.id]["fielddict"].append(message.content)
@@ -527,6 +544,17 @@ async def on_message(message):
                     await direct_message(message, "Item deleted from vendor successfully.")
                     await dm_tracker[message.author.id]["commandchannel"].send(">>> Item deleted from vendor successfully.")
                 return
+        elif current_command == 'newrandomchar':
+            if message.content == 'YES':
+                result = await insert_into(message, "UnapprovedCharacterProfiles")
+                if result:
+                    await direct_message(message, "Character application for " + field_dict[0] + " created successfully.")
+                    await dm_tracker[message.author.id]["commandchannel"].send(">>> Character application for  " + field_dict[0] + " successfully created.\n\nAfter approval, you may edit any character fields with =editchar.\n\n<@&" + str(guild_settings[dm_tracker[message.author.id]["server_id"]]["AdminRole"]) + ">, please approve or decline the character with =approvechar or =denychar.")
+                else:
+                    await direct_message(message, "Database error!")
+            else:
+                await direct_message(message, "Character discarded.")
+            return
         elif current_command == 'deletearmoryitem':
             if current_field == 0:
                 dm_tracker[message.author.id]["fielddict"].append(message.content)
@@ -669,7 +697,7 @@ async def on_message(message):
                                         await log_message("applying defense!")
                                     if re.search(r"Attack|MagicAttack|Agility",arm_row[2]):
                                         server_party_chars[server_id][user_id][arm_row[2]] = server_party_chars[server_id][user_id][arm_row[2]] + int(arm_row[3])
-                                        await log_message("applying " + arm_row[3] + " to " + arm_row[2])
+                                        await log_message("applying " + str(arm_row[3]) + " to " + str(arm_row[2]))
 
                                   
                     
@@ -913,8 +941,8 @@ async def on_message(message):
                     if not result_2:
                         await direct_message(message, "Database error!")
                         return
-                    await direct_message(message, char_name + " traded " + equip_name + " to " + target_name + " with mun of <@" + str(target_user) + ">.")
-                    await dm_tracker[message.author.id]["commandchannel"].send(">>> " + char_name + " traded " + equip_name + " to " + target_name + " with mun of <@" + str(target_user) + ">.")                        
+                    await direct_message(message, char_name + " traded to " + target_name + " with mun of <@" + str(target_user) + ">.")
+                    await dm_tracker[message.author.id]["commandchannel"].send(">>> " + char_name + " traded to " + target_name + " with mun of <@" + str(target_user) + ">.")                        
                 else:
                     await reply_message(message, "You don't own this item!")
                 await initialize_dm(message.author.id)    
@@ -977,8 +1005,8 @@ async def on_message(message):
                     if not result_2:
                         await direct_message(message, "Database error!")
                         return
-                    await direct_message(message, char_name + " traded " + equip_name + " to " + target_name + " with mun of <@" + str(target_user) + ">.")
-                    await dm_tracker[message.author.id]["commandchannel"].send(">>> " + char_name + " traded " + equip_name + " to " + target_name + " with mun of <@" + str(target_user) + ">.")                        
+                    await direct_message(message, char_name + " traded to " + target_name + " with mun of <@" + str(target_user) + ">.")
+                    await dm_tracker[message.author.id]["commandchannel"].send(">>> " + char_name + " traded to " + target_name + " with mun of <@" + str(target_user) + ">.")                        
                 else:
                     await reply_message(message, "You don't own this item!")
                 await initialize_dm(message.author.id)    
@@ -1182,21 +1210,22 @@ async def on_message(message):
                 if amount > int(dm_tracker[message.author.id]["parameters"]):
                     await direct_message(message, "There isn't that much in the bank! Please choose an amount lower than the bank balance!")
                     return
-            records = await select_sql("""SELECT Currency FROM CharacterProfiles WHERE Id=%s;""", (str(dm_tracker[message.author.id]["fielddict"][0]),))
-            for row in records:
-                current_currency = int(row[0])
-            new_total = current_currency + amount
-            new_bank = balance - amount
-            result = await commit_sql("""UPDATE CharacterProfiles SET Currency=%s WHERE Id=%s;""",(str(new_total), str(dm_tracker[message.author.id]["fielddict"][0])))
-            if result:
-                result2 = await commit_sql("""UPDATE GuildSettings SET GuildBankBalance=%s WHERE ServerId=%s;""",(str(new_bank),str(dm_tracker[message.author.id]["server_id"])))
-                if result2:
-                    await direct_message(message, "Character now has a fatter wallet!")
-                    await dm_tracker[message.author.id]["commandchannel"].send(">>> Character now has a fatter wallet!")
+                records = await select_sql("""SELECT Currency FROM CharacterProfiles WHERE Id=%s;""", (str(dm_tracker[message.author.id]["fielddict"][0]),))
+                for row in records:
+                    current_currency = int(row[0])
+                new_total = current_currency + amount
+                balance = int(dm_tracker[message.author.id]["parameters"])
+                new_bank = balance - amount
+                result = await commit_sql("""UPDATE CharacterProfiles SET Currency=%s WHERE Id=%s;""",(str(new_total), str(dm_tracker[message.author.id]["fielddict"][0])))
+                if result:
+                    result2 = await commit_sql("""UPDATE GuildSettings SET GuildBankBalance=%s WHERE ServerId=%s;""",(str(new_bank),str(dm_tracker[message.author.id]["server_id"])))
+                    if result2:
+                        await direct_message(message, "Character now has a fatter wallet!")
+                        await dm_tracker[message.author.id]["commandchannel"].send(">>> Character now has a fatter wallet!")
+                    else:
+                        await direct_message(message, "Database error!")
                 else:
                     await direct_message(message, "Database error!")
-            else:
-                await direct_message(message, "Database error!")
         elif current_command == 'takemelee':
             if current_field == 0:
                 dm_tracker[message.author.id]["fielddict"].append(message.content)
@@ -1268,13 +1297,13 @@ async def on_message(message):
                         if item != 'None':
                             arm_records = await select_sql("""SELECT MinimumLevel,Defense,StatMod,Modifier FROM Armaments WHERE Id=%s;""", (str(item),))
                             for arm_row in arm_records:
-                                if int(arm_row[0]) < server_party_chars[server_id][user_id]["Level"]:
+                                if int(arm_row[0]) < mass_spar_chars[server_id][user_id]["Level"]:
                                     if int(arm_row[1]) > 0:
                                         mass_spar_chars[server_id][user_id]["Defense"] = mass_spar_chars[server_id][user_id]["Defense"] + int(arm_row[1])
                                         await log_message("applying defense!")
                                     if re.search(r"Attack|MagicAttack|Agility",arm_row[2]):
                                         mass_spar_chars[server_id][user_id][arm_row[2]] = mass_spar_chars[server_id][user_id][arm_row[2]] + int(arm_row[3])
-                                        await log_message("applying " + arm_row[3] + " to " + arm_row[2])
+                                        await log_message("applying " + str(arm_row[3]) + " to " + str(arm_row[2]))
             await dm_tracker[message.author.id]["commandchannel"].send(">>> " + message.author.name + " successfully set party character to " + char_name + ".")
             await direct_message(message, "You successfully set your spar character to " + char_name)
             await initialize_dm(message.author.id)
@@ -1939,8 +1968,8 @@ async def on_message(message):
                 currency = currency + cost
                 result = await commit_sql("""DELETE FROM Inventory WHERE ServerId=%s AND UserId=%s AND CharacterId=%s AND EquipmentId=%s;""",(str(dm_tracker[message.author.id]["server_id"]), str(message.author.id), dm_tracker[message.author.id]["fielddict"][0], item_id))
                 if result:
-                    await direct_message(message, char_name + " sold " + equip_name + " for " + str(cost) + " and has " + str(currency) + " left.")
-                    await dm_tracker[message.author.id]["commandchannel"].send(">>> " + char_name + " sold " + equip_name + " for " + str(cost) + " and has " + str(currency) + " left.")
+                    await direct_message(message, char_name + " sold for " + str(cost) + " and has " + str(currency) + " left.")
+                    await dm_tracker[message.author.id]["commandchannel"].send(">>> " + char_name + " sold for " + str(cost) + " and has " + str(currency) + " left.")
                     result_2 = await commit_sql("""UPDATE CharacterProfiles SET Currency=%s WHERE Id=%s""", (str(currency), dm_tracker[message.author.id]["fielddict"][0]))
                     if not result_2:
                         await direct_message(message, "Database error!")
@@ -1998,8 +2027,8 @@ async def on_message(message):
                 currency = currency + cost
                 result = await commit_sql("""DELETE FROM ArmamentInventory WHERE ServerId=%s AND UserId=%s AND CharacterId=%s AND ArmamentId=%s;""",(str(dm_tracker[message.author.id]["server_id"]), str(message.author.id), dm_tracker[message.author.id]["fielddict"][0], item_id))
                 if result:
-                    await direct_message(message, char_name + " sold " + equip_name + " for " + str(cost) + " and has " + str(currency) + " left.")
-                    await dm_tracker[message.author.id]["commandchannel"].send(">>> " + char_name + " sold " + equip_name + " for " + str(cost) + " and has " + str(currency) + " left.")
+                    await direct_message(message, char_name + " sold for " + str(cost) + " and has " + str(currency) + " left.")
+                    await dm_tracker[message.author.id]["commandchannel"].send(">>> " + char_name + " sold for " + str(cost) + " and has " + str(currency) + " left.")
                     result_2 = await commit_sql("""UPDATE CharacterProfiles SET Currency=%s WHERE Id=%s""", (str(currency), dm_tracker[message.author.id]["fielddict"][0]))
                     if not result_2:
                         await direct_message(message, "Database error!")
@@ -2185,7 +2214,7 @@ async def on_message(message):
         dm_tracker[message.author.id]["currentfield"] = dm_tracker[message.author.id]["currentfield"] + 1
         if dm_tracker[message.author.id]["currentfield"] < len(field_list):
             await direct_message(message, "Reply received. Next field is " + "**" + dm_tracker[message.author.id]["fieldlist"][dm_tracker[message.author.id]["currentfield"]] + "**.")
-        if current_field > len(field_list) - 2:
+        if current_field > len(field_list) - 2 and current_command !='newrandomchar':
             if current_command == 'newcustomchar':
                 new_custom_profile = """INSERT INTO Server""" + str(dm_tracker[message.author.id]["server_id"]) + """ (UserId, Name, """
                 create_values = """ VALUES (%s, """
@@ -2232,6 +2261,7 @@ async def on_message(message):
                     await dm_tracker[message.author.id]["commandchannel"].send(">>> Character " + char_name + " successfully created.\n\n<@&" + str(guild_settings[dm_tracker[message.author.id]["server_id"]]["AdminRole"]) + ">, please approve or decline the character with =approvechar or =denychar.")
                 else:
                     await direct_message(message, "Database error!")
+
             elif current_command == 'newspell':
                 result = await insert_into(message, "Spells")
                 if result:
@@ -2300,19 +2330,39 @@ async def on_message(message):
                     await dm_tracker[message.author.id]["commandchannel"].send(">>> NPC " + field_dict[0] + " successfully edited.")
                 else:
                     await direct_message(message, "Database error!")
-               
+            elif current_command == 'editsetup':
+                records = await select_sql("""SELECT ServerId FROM GuildSettings WHERE ServerId=%s;""",(str(dm_tracker[message.author.id]["server_id"]),))
+                if not records:
+                    result = await commit_sql("""INSERT INTO GuildSettings (ServerId) VALUES (%s);""",(str(dm_tracker[message.author.id]["server_id"]),))
+                    if not result:
+                        await direct_message(message, "Database error!")
+                        return
+                result = await update_table(message, "GuildSettings")
+                if result:
+                    await direct_message(message, "Guild settings successfully edited.")
+                    await dm_tracker[message.author.id]["commandchannel"].send(">>> Guild settings successfully edited.")
+                else:
+                    await direct_message(message, "Database error!")
+                return               
             elif current_command == 'editchar':
                 if message.attachments:
-                    field_dict[len(field_dict) -1] = message.attachments[0].url
+                    field_dict[len(field_dict)] = message.attachments[0].url
                 result = await update_table(message, "CharacterProfiles")
                 if result:
                     await direct_message(message, "Character " + field_dict[0] + " successfully edited.")
                     await dm_tracker[message.author.id]["commandchannel"].send(">>> Character " + field_dict[0] + " successfully edited.")
                 else:
                     await direct_message(message, "Database error!")
+            elif current_command == 'editcharinfo':
+                result = await update_table(message, "CharacterProfiles")
+                if result:
+                    await direct_message(message, "Character " + field_dict[0] + " successfully edited.")
+                    await dm_tracker[message.author.id]["commandchannel"].send(">>> Character " + field_dict[0] + " successfully edited.")
+                else:
+                    await direct_message(message, "Database error!")                    
             elif current_command == 'editmonster':
                 if message.attachments:
-                    field_dict[len(field_dict) -1] = message.attachments[0].url
+                    field_dict[len(field_dict)] = message.attachments[0].url
                 result = await update_table(message, "Monsters")
                 if result:
                     await direct_message(message, "Monster " + dm_tracker[message.author.id]["parameters"] + " successfully edited.")
@@ -2323,24 +2373,24 @@ async def on_message(message):
 
                 result = await update_table(message, "Equipment")
                 if result:
-                    await direct_message(message, "Item " + equip_name + " edited successfully.")
-                    await dm_tracker[message.author.id]["commandchannel"].send(">>> Item " + equip_name + " edited successfully.")
+                    await direct_message(message, "Item edited successfully.")
+                    await dm_tracker[message.author.id]["commandchannel"].send(">>> Item edited successfully.")
                 else:
                     await direct_message(message, "Database error!")
             elif current_command == 'editarmament':
 
                 result = await update_table(message, "Armaments")
                 if result:
-                    await direct_message(message, "Armament" + equip_name + " edited successfully.")
-                    await dm_tracker[message.author.id]["commandchannel"].send(">>> Item " + equip_name + " edited successfully.")
+                    await direct_message(message, "Armamentedited successfully.")
+                    await dm_tracker[message.author.id]["commandchannel"].send(">>> Item edited successfully.")
                 else:
                     await direct_message(message, "Database error!")
             elif current_command == 'editbuff':
 
                 result = await update_table(message, "Buffs")
                 if result:
-                    await direct_message(message, "Buff" + equip_name + " edited successfully.")
-                    await dm_tracker[message.author.id]["commandchannel"].send(">>> Buff " + equip_name + " edited successfully.")
+                    await direct_message(message, "Buffedited successfully.")
+                    await dm_tracker[message.author.id]["commandchannel"].send(">>> Buff edited successfully.")
                 else:
                     await direct_message(message, "Database error!")                    
             elif current_command == 'editmelee':
@@ -2416,7 +2466,7 @@ async def on_message(message):
             pass
         return
         
-    elif npc_aliases[message.guild.id][message.author.id][message.channel.id]:
+    elif npc_aliases[message.guild.id][message.author.id][message.channel.id] and not message.content.startswith('='):
             get_npc = """SELECT UsersAllowed, CharName, PictureLink FROM NonPlayerCharacters WHERE ServerId=%s AND Shortcut=%s;"""
             npc_tuple = (str(message.guild.id), npc_aliases[message.guild.id][message.author.id][message.channel.id])
             records = await select_sql(get_npc, npc_tuple)
@@ -2465,53 +2515,63 @@ async def on_message(message):
                 response = "`Welcome to RP Mastermind, the Discord RP Bot Master!`\n\n\n\n*Using Help:*\n\n\n\nType =info or =help followed by one of these categories:\n\n\n\n`general`: Not commands, but information on how the bot works.\n\n`setup`: Commands for getting the bot running.\n\n`characters`: Commands for managing characters.\n\n`npcs`: Commands for managing NPCs.\n\n`monsters` Commands for managing monsters.\n\n`items`: Commands for managing equipment.\n\n`encounters`: Commands for managing encounters.\n\n`melee` Commands for managing melee attacks.\n\n`spells` Commands for managing spells.\n\n`sparring`: Commands for managing sparring.\n\n`inventory`: Commands for managing inventory.\n\n`economy`: Commands for buying, selling and the guild bank.\n\n`vendors`: Commands for creating, editing and deleting vendors and adding items to them.\n\n`buffs`: Commands for adding, editing, deleting, and giving and taking away buffs.\n\n`armaments`: Commands for managing armaments\n\n`armories`: Commands for managing armories.\n\n`fun`: Commands for old time RP fun.\n\nMore advanced documentation can be found on the wiki: https://github.com/themidnight12am/rpmastermind/wiki\n\n"
             elif parsed_string == 'setup':
                 response = "**SETUP COMMANDS**\n\n\n\n`=setadminrole @Role`: *Owner* Set the admin role. This must be done before any other setup. This can only be done by a server owner. See general for role descriptions.\n\n`=newsetup` *Admin* Set up the initial server parameters. See the fields below for descriptions.\n\n`=editsetup` Modify the existing server setup parameters.\n\n`=setplayerrole @Role` *Admin* Set the player role.\n\n`=setgmrole @Role` *Admin* Set the Game Moderator role.\n\n`=setnpcrole @Role` *Admin* Set the NPC manager role.\n\n`=listroles` *None* List the server roles.\n\n`=addadmin @user1 @user2` Add users to the admin role. Only the server owner can do this.\n\n`=addnpcuser @user1 @user2` Add users to the NPC role.\n\n`=addplayer @user1 @user2` Add users to the player role.\n\n`=addgm @user1 @user2` Add users to the GM role.\n\n`=deleteadmin @user1 @user2` Delete users from the admin role. Only the server owner can do this.\n\n`=deletenpc @user1 @user2` Delete users from the NPC role.\n\n`=deleteplayer @user1 @user2` Delete users from the player role.\n\n`=deletegm @user1 @user2` Delete users from the GM role.\n\n`=resetserver` Wipe all data from the bot for this server. Only the server owner may perform this action.\n\n`=invite` Get an invite link for the bot.\n\n"
-                fields = "**SERVER SETTINGS FIELDS**\n\n\n\n`GuildBankBalance:` The total currency in the guild bank. Used for determining how much can be sold back to the guild or how much currency can be given by GMs.\n\n`StartingHealth:` The amount of health new characters start with.\n\n`StartingMana:` The amount of stamina new characters start with.\n\n`StartingAttack:` The amount of attack power new characters start with for melee.\n\n`StartingDefense:` The amount of defense against total damage a character starts with.\n\n`StartingMagicAttack:` The amount of spell power a new character starts with.\n\n`StartingAgility:` The amount of agility a new character starts with.\n\n`StartingIntellect:` The amount of intellect a new character starts with (unused).\n\n  `StartingCharisma:` The amount of charisma a new character starts with (unused).\n\n`HealthLevelRatio:` How many times the level a character's health is set to.\n\n`ManaLevelRatio:` How many times the level a character's mana is set to.\n\n`StaminaLevelRatio:` How many times the level a character's stamina is set to.\n\n`XPLevelRatio:` How many times a level XP must total to before a new level is granted.\n\n`HealthAutoHeal:` How much health is restored per turn during spars and encounters for characters as a multiplier of health. Set to zero for no restores, or less than 1 for partial autoheal (such as 0.1 for 10% per turn).\n\n`ManaAutoHeal:` How much mana restores per turn.\n\n`StaminaAutoHeal:` How much stamina restores per turn.\n\n"
+#                fields = "**SERVER SETTINGS FIELDS**\n\n\n\n`GuildBankBalance:` The total currency in the guild bank. Used for determining how much can be sold back to the guild or how much currency can be given by GMs.\n\n`StartingHealth:` The amount of health new characters start with.\n\n`StartingMana:` The amount of stamina new characters start with.\n\n`StartingAttack:` The amount of attack power new characters start with for melee.\n\n`StartingDefense:` The amount of defense against total damage a character starts with.\n\n`StartingMagicAttack:` The amount of spell power a new character starts with.\n\n`StartingAgility:` The amount of agility a new character starts with.\n\n`StartingIntellect:` The amount of intellect a new character starts with (unused).\n\n  `StartingCharisma:` The amount of charisma a new character starts with (unused).\n\n`HealthLevelRatio:` How many times the level a character's health is set to.\n\n`ManaLevelRatio:` How many times the level a character's mana is set to.\n\n`StaminaLevelRatio:` How many times the level a character's stamina is set to.\n\n`XPLevelRatio:` How many times a level XP must total to before a new level is granted.\n\n`HealthAutoHeal:` How much health is restored per turn during spars and encounters for characters as a multiplier of health. Set to zero for no restores, or less than 1 for partial autoheal (such as 0.1 for 10% per turn).\n\n`ManaAutoHeal:` How much mana restores per turn.\n\n`StaminaAutoHeal:` How much stamina restores per turn.\n\n"
+                fields = "For server settings fields, see: https://github.com/themidnight12am/rpmastermind/wiki#server-settings-fields\n\n"
             elif parsed_string == 'characters':
-                response = "**CHARACTER COMMANDS**\n\n\n\n`=newchar` *Player* Set up a new character. The bot will DM you for all new fields. An admin must approve a character to become active.\n\n`=editstats` *Admin* Modify character statistics. Specify the name of the character, the bot will DM you for new stats.\n\n`=editchar <charname>` *Player* Edit an existing character's profile. The bot will DM you for the fields.\n\n`=setcharbio` *Player* Set a character's biography (free text).\n\n`=setcharskills` *Player* Set the character's skills (free text).\n\n`=setcharstrengths` *Player* Set the character's strengths (free text).\n\n`=setcharweaknesses` *Player* Set the character's weaknesses (free text).\n\n`=setcharpowers` *Player* Set the character's powers and abilities (free text).\n\n`=setcharpersonality` *Player* Set the character's personality (free text).\n\n`=deletechar <charname>` *Player* Delete a character.\n\n`=getcharskills` *None* Get the current list of character spells and melee attacks.\n\n`=getcharprofile` *None* Get a character's complete profile.\n\n`=listmychars` *Player* List the current user's characters.\n\n`=listallchars` *None* List all server characters and their owners.\n\n`=listuserchars @User` *None* List a user's characters.\n\n`=addstatpoints` *Player* Spend earned stat points on character stats.\n\n`=givestatpoints` *Game Moderator* Grant stat points to a character.\n\n`=approvechar` *Admin* Approve a character for play.\n\n`=denychar` *Admin* Decline a character for play. A reason should be provided, and the admin has the option to delete the application entirely if it cannot be fixed.\n\n`=listunapprovedchars` *None* List the characters waiting to be approved or denied.\n`=getchararms name` Get a list of the named character's armaments.\n\n`=getcharequipped name` See what the character currently has equipped in which slots.\n\n"
-                fields = "**CHARACTER FIELDS**\n\n\n\n`CharacterName:` The given full name of the character.\n\n`Age:` The age of the character.\n\n`Race:` The race of the character (human, vampire, etc)\n\n`Gender:` The gender, if known of the character (male, female, trans, etc).\n\n`Height:` The usual height of the character, if known (5'5'', 10 cubits, etc).\n\n`Weight:` The mass on the current world of the character (180 lbs, five tons, etc).\n\n`PlayedBy:` The name of the artist, human representation, actor, etc who is used to show what the character looks like (Angelina Jolie, Brad Pitt, etc).\n\n`Origin:` The hometown or homeworld of the character (Texas, Earth, Antares, etc).\n\n`Occupation:` What the character does for a living, if applicable (blacksmith, mercenary, prince, etc).\n\n`PictureLink:` A direct upload or http link to a publicly accessible picture on the Internet. Google referral links don't always work.\n\n\n\n**ADDITIONAL CHARACTER INFO**\n\n\n\n`Personality:` Free text description of the character's personality (aloof, angry, intelligent)\n\n`Biography:` Any information about the character's history (tragic past, family story, etc).\n\n`Description:` Free text physical description of the character, especially if no play by or picture link is provided, or a description of alternate forms (such as wolf form, final form, etc).\n\n`Strengths:` Free text description of what the character is good at (drawing, melee combat, science, magic.\n\n`Weaknesses:` Free text description of what weaknesses the character has (silver, light, Kryptonite, etc).\n\n`Powers:` The supernatural abilities the character has (such as magic, fire, telepathy.\n\n`Skills:` Any speciality skills the character has (ace sniper, expert in arcane arts, engineer PhD, etc).\n\n\n\n**CHARACTER STATISTICS**\n\n\n\n`Attack:` The base number for melee combat damage. Multiplied by the melee damage multiplier.\n\n`Defense:` The total defense against all damage the character has. Subtracted from damage.\n\n`MagicAttack:` The base number for spell damage. Multiplied by the spell damage multiplier.\n\n`Health:` The amount of health a character has. When this reaches zero during sparring or monster encounters, the player is out of the group. Can be restored by buffs or items. Base is 20 times the level, and restores by 10% each turn.\n\n`Level:` The character's current level, which determines health, mana and stamina. Also determines the experience gained by combat with characters or monsters of different levels.\n\n`Experience:` The amount of experience a character has. To level up, a character must earn 20 times their current level in experience points.\n\n`Stamina:` The amount of stamina a character has for melee combat. When this reaches zero, a chracter must pass or use a spell or item. Heals by 20% every turn.\n\n`Mana:` The amount of mana for spells. When this reaches zero, a character must pass, use melee attacks or an item. Heals for 20% every turn.\n\n`Agility:` How likely a character is to dodge an attack. Higher agility means greater speed.\n\n`Intellect:` Currently unused.\n\n`Charisma:` Currently unused.\n\n`Currency:` How much money a character has for purchasing items.\n\n"
-                
+                response = "**CHARACTER COMMANDS**\n\n\n\n`=newchar` *Player* Set up a new character. The bot will DM you for all new fields. An admin must approve a character to become active.\n\n`=editstats` *Admin* Modify character statistics. Specify the name of the character, the bot will DM you for new stats.\n\n`=editchar <charname>` *Player* Edit an existing character's profile. The bot will DM you for the fields.\n\n`=editcharinfo` *Player* Edit a character's addtional information fields.\n\n`=deletechar <charname>` *Player* Delete a character.\n\n`=getcharskills` *None* Get the current list of character spells and melee attacks.\n\n`=getcharprofile` *None* Get a character's complete profile.\n\n`=listmychars` *Player* List the current user's characters.\n\n`=listallchars` *None* List all server characters and their owners.\n\n`=listuserchars @User` *None* List a user's characters.\n\n`=addstatpoints` *Player* Spend earned stat points on character stats.\n\n`=givestatpoints` *Game Moderator* Grant stat points to a character.\n\n`=approvechar` *Admin* Approve a character for play.\n\n`=denychar` *Admin* Decline a character for play. A reason should be provided, and the admin has the option to delete the application entirely if it cannot be fixed.\n\n`=listunapprovedchars` *None* List the characters waiting to be approved or denied.\n`=getchararms name` Get a list of the named character's armaments.\n\n`=getcharequipped name` See what the character currently has equipped in which slots.\n\n"
+#                fields = "**CHARACTER FIELDS**\n\n\n\n`CharacterName:` The given full name of the character.\n\n`Age:` The age of the character.\n\n`Race:` The race of the character (human, vampire, etc)\n\n`Gender:` The gender, if known of the character (male, female, trans, etc).\n\n`Height:` The usual height of the character, if known (5'5'', 10 cubits, etc).\n\n`Weight:` The mass on the current world of the character (180 lbs, five tons, etc).\n\n`PlayedBy:` The name of the artist, human representation, actor, etc who is used to show what the character looks like (Angelina Jolie, Brad Pitt, etc).\n\n`Origin:` The hometown or homeworld of the character (Texas, Earth, Antares, etc).\n\n`Occupation:` What the character does for a living, if applicable (blacksmith, mercenary, prince, etc).\n\n`PictureLink:` A direct upload or http link to a publicly accessible picture on the Internet. Google referral links don't always work.\n\n\n\n**ADDITIONAL CHARACTER INFO**\n\n\n\n`Personality:` Free text description of the character's personality (aloof, angry, intelligent)\n\n`Biography:` Any information about the character's history (tragic past, family story, etc).\n\n`Description:` Free text physical description of the character, especially if no play by or picture link is provided, or a description of alternate forms (such as wolf form, final form, etc).\n\n`Strengths:` Free text description of what the character is good at (drawing, melee combat, science, magic.\n\n`Weaknesses:` Free text description of what weaknesses the character has (silver, light, Kryptonite, etc).\n\n`Powers:` The supernatural abilities the character has (such as magic, fire, telepathy.\n\n`Skills:` Any speciality skills the character has (ace sniper, expert in arcane arts, engineer PhD, etc).\n\n\n\n**CHARACTER STATISTICS**\n\n\n\n`Attack:` The base number for melee combat damage. Multiplied by the melee damage multiplier.\n\n`Defense:` The total defense against all damage the character has. Subtracted from damage.\n\n`MagicAttack:` The base number for spell damage. Multiplied by the spell damage multiplier.\n\n`Health:` The amount of health a character has. When this reaches zero during sparring or monster encounters, the player is out of the group. Can be restored by buffs or items. Base is 20 times the level, and restores by 10% each turn.\n\n`Level:` The character's current level, which determines health, mana and stamina. Also determines the experience gained by combat with characters or monsters of different levels.\n\n`Experience:` The amount of experience a character has. To level up, a character must earn 20 times their current level in experience points.\n\n`Stamina:` The amount of stamina a character has for melee combat. When this reaches zero, a chracter must pass or use a spell or item. Heals by 20% every turn.\n\n`Mana:` The amount of mana for spells. When this reaches zero, a character must pass, use melee attacks or an item. Heals for 20% every turn.\n\n`Agility:` How likely a character is to dodge an attack. Higher agility means greater speed.\n\n`Intellect:` Currently unused.\n\n`Charisma:` Currently unused.\n\n`Currency:` How much money a character has for purchasing items.\n\n"
+                fields = "For character fields, see: https://github.com/themidnight12am/rpmastermind/wiki#character-profile-fields\n\nFor character status fields, see: https://github.com/themidnight12am/rpmastermind/wiki#character-statistic-fields\n\nFor character additional info fields, see: https://github.com/themidnight12am/rpmastermind/wiki#character-additional-information-fields\n\n"
             elif parsed_string == 'npcs':
                 response = "**NPC COMMANDS**\n\n\n\n`=npctemplate` *None* Get the template for NPCs.\n\n`=newpc` *NPC* Create a new NPC.\n\n`=postnpc` *Player* Post as an NPC if you are in the allowed user list.\n\n`=editnpc` *NPC* Edit an NPC.\n\n`=deletenpc` *NPC* Delete an NPC.\n\n`=listnpcs`: *None* List all server NPCs.\n\n"
             elif parsed_string == 'monsters':
                 response = "**MONSTER COMMANDS**\n\n\n\n`=newmonster` *Game Moderator* Add a new monster to the game.\n\n`=editmonster monster name` *Game Moderator* Edit an existing monster. The bot will DM you for the fields.\n\n`=deletemonster monster name` *Game Moderator* Delete a monster from the game.\n\n"
-                fields = "**MONSTER FIELDS**\n\n\n\n`MonsterName:` The name of the monster as appearing in encounters.\n\n`Description:` A brief description of the monster physically, its temperament, and powers.\n\n`Health:` The total health of the monster. When this reaches zero, the encounter ends. It does not restore.\n\n`Level:` The level of the monster, used for calculating experience.\n\n`Attack:` The attack power of the monster. The monster's damage multiplier will be a random number between one and five.\n\n`Defense:` The defense against player damage the monster has.\n\n`Element:` The magic element of the monster, currently unused.\n\n`MagicAttack:` The spell power of the monster, currently unused.\n\n`MaxCurrencyDrop:` The maximum amount of money the monster drops when the encounter ends. The drop will vary between 1 and this maximum and is evenly split among the server party.\n\n`PictureLink:` A picture of the monster, either Internet link or direct Discord upload.\n\n"
+                fields = "For monster fields, see: https://github.com/themidnight12am/rpmastermind/wiki#monster-fields\n\n"
+#                fields = "**MONSTER FIELDS**\n\n\n\n`MonsterName:` The name of the monster as appearing in encounters.\n\n`Description:` A brief description of the monster physically, its temperament, and powers.\n\n`Health:` The total health of the monster. When this reaches zero, the encounter ends. It does not restore.\n\n`Level:` The level of the monster, used for calculating experience.\n\n`Attack:` The attack power of the monster. The monster's damage multiplier will be a random number between one and five.\n\n`Defense:` The defense against player damage the monster has.\n\n`Element:` The magic element of the monster, currently unused.\n\n`MagicAttack:` The spell power of the monster, currently unused.\n\n`MaxCurrencyDrop:` The maximum amount of money the monster drops when the encounter ends. The drop will vary between 1 and this maximum and is evenly split among the server party.\n\n`PictureLink:` A picture of the monster, either Internet link or direct Discord upload.\n\n"
             elif parsed_string == 'items':
                 response = "**ITEM COMMANDS**\n\n\n\n`=newitem` *Admin* Add a new item to the game.\n\n`=edititem` Edit an existing item. The bot will DM you for the fields.\n\n`=deleteitem item name` Remove an item from the game.\n\n`=listitems` List all equipment on the server.\n\n`=giveitem` *Game Moderator* Give a character an item.\n\n`=takeitem` *Game Moderator.* Take an item away from a character."
-                fields = "**ITEM FIELDS**\n\n\n\n`EquipmentName:` The name of the item as it will appear in the inventory and vendor lists.\n\n`EquipmentDescription:` A description of the item.\n\n`EquipmentCost:` How much currency a player must have to purchase the item.\n\n`MinimumLevel:` The minimum level a character must be to use an item. A player may purchase a higher-level item but will not be able to use it until their level is the minimum or higher.\n\n`StatMod:` Which character statistic this item modifies (Health, Stamina, Mana, Attack, Defense, MagicAttack, Agility).\n\n`Modifier:` The value this item modifies the statistic by. A positive value increases the stat, a negative one decreases it. So a healing potion could be 100, and a cursed item -500.\n\n"
+                fields = "For item fields, see: https://github.com/themidnight12am/rpmastermind/wiki#item-fields\n\n"
+#                fields = "**ITEM FIELDS**\n\n\n\n`EquipmentName:` The name of the item as it will appear in the inventory and vendor lists.\n\n`EquipmentDescription:` A description of the item.\n\n`EquipmentCost:` How much currency a player must have to purchase the item.\n\n`MinimumLevel:` The minimum level a character must be to use an item. A player may purchase a higher-level item but will not be able to use it until their level is the minimum or higher.\n\n`StatMod:` Which character statistic this item modifies (Health, Stamina, Mana, Attack, Defense, MagicAttack, Agility).\n\n`Modifier:` The value this item modifies the statistic by. A positive value increases the stat, a negative one decreases it. So a healing potion could be 100, and a cursed item -500.\n\n"
             elif parsed_string == 'encounters':
                 response = "**ENCOUNTER COMMANDS**\n\n\n\n`=newparty @user1 @user2` *Game Moderator* Set a new party with the specified users.\n\n`=disbandparty` *Game Moderator* Disband the current server party.\n\n`=setencounterchar` *Player* Set the player's character for the encounter.\n\n`=encountermonster` *Game Moderator* Begin the monster encounter.\n\n`=monsterattack` *Game Moderator* Have the monster attack a random party member.\n\n`=castmonster` *Player* Attack the monster with the specified spell.\n\n`meleemonster` *Player* Attack the monster with the specified melee attack.\n\n`=weaponmonster` Attack the monster with an equipped armament.\n\n`=abortencounter` *Game Moderator* End the encounter with no health penalty *and* no experience gained.\n\n`=pass` Pass on your turn.\n\n\n\n"
-                fields = "**ENCOUNTER COMMAND SEQUENCE**\n\n\n\nA game moderator can begin a monster encounter by using the command `=newparty` followed by mentions (@) of the players in the encounter. Each player must then enter `=setencounterchar` to set a character for the encounter by using the DM system. The game moderator then use the command `=encountermonster` and selects a server monster from the list by replying to the DM. This initiates the encounter. Each character will be told it is their turn and can use `=meleemonster` to select a melee attack to strike the monster or `=castmonster` to strike the monster with a spell. The game moderator may use `=monsterattack` on anyone's turn to randomly strike any party member with the monster's attack. The game moderator may also end the encounter early with the `=abortencounter` command, which resets all stats but does not restore items, and returns no experience or currency. Players may also `=pass` on their turn but may not leave the encounter. The encounter ends when the monster's health reaches zero, and then everyone gets an even split of the currency drop and experience based on the damage they did to the monster. The party will not disband automatically, in case there are multiple monsters to encounter. A party may disband with the `=disbandparty` command."
+                fields = "For encounter comamnd sequences, see: https://github.com/themidnight12am/rpmastermind/wiki#running-an-encounter\n\n"
+#                fields = "**ENCOUNTER COMMAND SEQUENCE**\n\n\n\nA game moderator can begin a monster encounter by using the command `=newparty` followed by mentions (@) of the players in the encounter. Each player must then enter `=setencounterchar` to set a character for the encounter by using the DM system. The game moderator then use the command `=encountermonster` and selects a server monster from the list by replying to the DM. This initiates the encounter. Each character will be told it is their turn and can use `=meleemonster` to select a melee attack to strike the monster or `=castmonster` to strike the monster with a spell. The game moderator may use `=monsterattack` on anyone's turn to randomly strike any party member with the monster's attack. The game moderator may also end the encounter early with the `=abortencounter` command, which resets all stats but does not restore items, and returns no experience or currency. Players may also `=pass` on their turn but may not leave the encounter. The encounter ends when the monster's health reaches zero, and then everyone gets an even split of the currency drop and experience based on the damage they did to the monster. The party will not disband automatically, in case there are multiple monsters to encounter. A party may disband with the `=disbandparty` command."
             elif parsed_string == 'melee':
                 response = "**MELEE COMMANDS**\n\n\n\n`=newmelee` *Admin* Create a new melee attack.\n\n`=editmelee` *Admin* Edit an existing melee attack. The bot will DM you for the fields.\n\n`=deletemelee attack name` *Admin* Delete a melee attack.\n\n`=listmelees` *None* List all melee attacks on the server.\n\n`=givemelee` *Admin* Give a character a melee attack.\n\n`=takemelee` *Admin* Take a melee attack from a character.\n\n"
-                fields = "**MELEE FIELDS**\n\n\n\n`AttackName:` The name of the melee attack as it appears in combat (punch, kick, body slam).\n\n`StaminaCost:` How much stamina will be used to perform the attack.\n\n`MinimumLevel:` The minimum level required for this attack. A character may know a technique at a lower level but cannot use it in combat.\n\n`DamageMultiplier:` How much to multiply the character's base attack power by for total damage.\n\n`Description:` A description of the attack (free text).\n\n"
+#                fields = "**MELEE FIELDS**\n\n\n\n`AttackName:` The name of the melee attack as it appears in combat (punch, kick, body slam).\n\n`StaminaCost:` How much stamina will be used to perform the attack.\n\n`MinimumLevel:` The minimum level required for this attack. A character may know a technique at a lower level but cannot use it in combat.\n\n`DamageMultiplier:` How much to multiply the character's base attack power by for total damage.\n\n`Description:` A description of the attack (free text).\n\n"
+                fields = "For meelee attack fields, see: https://github.com/themidnight12am/rpmastermind/wiki#melee-attack-fields\n\n"
             elif parsed_string == 'spells':
                 response = "**SPELL COMMANDS**\n\n\n\n`=newspell` *Admin* Create a new spell.\n\n`=editspell` *Admin* Edit an existing spell.\n\n`=deletespell spell name` Delete a spell.\n\n`=listspells` *Admin* List all server spells.\n\n`=givespell` *Admin* Give a character a spell.\n\n`=takespell` *Admin* Take a spell away from a character.\n\n"
-                fields = "`SPELL FIELDS`\n\n\n\n`SpellName:` The name of the spell as it appears in combat or skill lists.\n\n`Element:` The magic element of this spell (currently unused).\n\n`ManaCost:` The amount of mana drained to perform the spell.\n\n`MinimumLevel:` The mininum level required to use the spell. A character may know higher-level spells but cannot use them in combat.\n\n`DamageMultiplier:` The value by which MagicAttack is multiplied for total spell damage.\n\n`Description:` A free text description of the spell, such as what it looks like or its effects.\n\n"
+#                fields = "`SPELL FIELDS`\n\n\n\n`SpellName:` The name of the spell as it appears in combat or skill lists.\n\n`Element:` The magic element of this spell (currently unused).\n\n`ManaCost:` The amount of mana drained to perform the spell.\n\n`MinimumLevel:` The mininum level required to use the spell. A character may know higher-level spells but cannot use them in combat.\n\n`DamageMultiplier:` The value by which MagicAttack is multiplied for total spell damage.\n\n`Description:` A free text description of the spell, such as what it looks like or its effects.\n\n"
+                fields = "For spell fields, see: https://github.com/themidnight12am/rpmastermind/wiki#spell-fields\n\n"
             elif parsed_string == 'sparring':
                 response = "**SPARRING COMMANDS**\n\n\n\n*All spar commands only require player role.*\n\n\n\n`=newspargroup @User1 @User2...` Initiate a spar with two or more players.\n\n`=sparconfirm` Confirm you wish to spar if included in a spar group.`=spardeny` Decline the spar group invitation. If only player is left, the spar group disbands.\n\n`=setsparchar` Set the character to use for the spar.\n\n`=beginspar` Begin the spar. The bot will keep track of turns.\n\n`=meleespar` Target a *user's* character with a melee attack.\n\n`=castspar` Target a *user's* character with a spell.\n\n`=weaponspar` Attack a player with an armament.\n\n`=leavespar` Leave a spar group. You gain no experience and your health returns to normal, but the other spar members do gain experience.\n\n"
-                fields = "**SPARRING COMMAND SEQUENCE**\n\n\n\nAny player may initiate a spar with any number of players. The first command is `=newspargroup` followed by Discord mentions (@) of players wished to be in the spar group. Next, all mentioned players must reply `=sparconfirm` or `=spardeny` to join or not join the spar. If at least two people confirm the spar, then all players must select a character by entering `=setsparchar` and replying to the DM which character to use. `=beginspar` will initiate the spar. During combat, `=meleespar` will allow a character to select a melee attack and any target, and `=castspar` will allow a character to select a spell and any target. `=useitem` can be used out of turn to restore any statistic. A player may enter `=pass` if they have no mana or stamina, or do not wish to attack, and `=leavespar` will remove a character from the spar, gaining no experience but having no penalty on health.\n\n"
+                fields = "For how to run a mass spar, see: https://github.com/themidnight12am/rpmastermind/wiki#running-a-mass-spar\n\n"
+               # fields = "**SPARRING COMMAND SEQUENCE**\n\n\n\nAny player may initiate a spar with any number of players. The first command is `=newspargroup` followed by Discord mentions (@) of players wished to be in the spar group. Next, all mentioned players must reply `=sparconfirm` or `=spardeny` to join or not join the spar. If at least two people confirm the spar, then all players must select a character by entering `=setsparchar` and replying to the DM which character to use. `=beginspar` will initiate the spar. During combat, `=meleespar` will allow a character to select a melee attack and any target, and `=castspar` will allow a character to select a spell and any target. `=useitem` can be used out of turn to restore any statistic. A player may enter `=pass` if they have no mana or stamina, or do not wish to attack, and `=leavespar` will remove a character from the spar, gaining no experience but having no penalty on health.\n\n"
             elif parsed_string == 'inventory':
                 response = "**INVENTORY COMMANDS**\n\n\n\n`=myitems <character name>` List your character's items.\n\n`=useitem`\n\nUse an item in your inventory.\n\n"
             elif parsed_string == 'economy':
                 response = "**ECONOMY COMMANDS**\n\n\n\n`=givecurrency` *Game Moderator* Give a character money!\n\n`=buy` Buy an item from a vendor.\n\n`=sell` Sell an item back to the game for money.\n\n`=trade` Give an item to another character. Be careful with trades, as there's no way to guarantee the other party will trade back!\n\n`=sendcurrency` Send currency to another character, including your own.\n\n`=buyarms` Buy an armament from an armory.\n\n`=sellarms` Sell an armament back to the bank.\n\n`=tradearms` Trade an armament to another character. Again, no fairness is enforced.\n\n`=setbankbalance` *Admin* Update the bank guild balance.\n\n\n\n"
-
+                fields = "For buying and selling, see: https://github.com/themidnight12am/rpmastermind/wiki#buying-and-selling\n\n"
             elif parsed_string == 'vendors':
                 response = "**VENDOR COMMANDS**\n\n\n\n`=newvendor` Create a new vendor with items.\n\n`=addvendoritem` Add items to an existing vendor.\n\n`=deletevendor` Remove a vendor from the game.\n\n`=deletevendoritem` Delete an item for a particular vendor.\n\n`=listvendors` List all vendors in the game.\n\n`=listvendor <name>` List all items of a particular vendor."
-                fields = "**VENDOR FIELDS**\n\n\n\n`VendorName:` The name of the vendor as it appears in buying items.\n\n`ItemList:` A comma delimited list of item IDs available for purchase.\n\n"
+                fields = "For vendor fields, see: https://github.com/themidnight12am/rpmastermind/wiki#vendor-fields\n\n "
+ #               fields = "**VENDOR FIELDS**\n\n\n\n`VendorName:` The name of the vendor as it appears in buying items.\n\n`ItemList:` A comma delimited list of item IDs available for purchase.\n\n"
             elif parsed_string == 'fun':                
                 response = "**FUN FUN FUN COMMANDS**\n\n\n\n`=lurk` *None* Post a random lurk command.\n\n`=ooc` Post as the bot with OOC brackets.\n\n`=randomooc @user` Do something random to another user.\n\n`=roll` x`d`y *None* Roll x number of y-sided dice.\n\n"
             elif parsed_string == 'general':
-                response = "**GENERAL INFO**\n\n\n\nThis bot supports character profiles, leveling/experience, sparring, random encounters, monsters, equipment/inventory/economy, and spells/melee attacks.\n\n\n\nSome commands only require the name of the character or spell, like `=editmonster Evil Dead`. Other commands will initiate a DM that has menus that you can reply to for setting up or modifying game parameters. If the user has DMs disabled, the bot will reply in the same channel as the user's command.\n\n\n\n**ROLES**\n\n\n\nThere are four roles required to use the bot.\n\n`Admin:` The admin can run all commands of the bot, such as adding and deleting spells or items. The server owner must set the admin role.\n\n`Game Moderator:` The game moderator is able to start random encounters, add or delete monsters, give money, and give items.\n\n`NPC Manager:` The NPC manager is able to create, edit and delete NPCs.\n\n`Player:` A player is able to add, edit, and delete their character profile, and play as their character, and post as NPCs if allowed, and buy and sell items, and trade with other players. An admin role user must approve new characters.\n\n\n\n**LEVELING**\n\n\n\nLeveling is granted by gaining experience. Experience is gained by random encounters, sparring, or granted by a game moderator. A new level is achieved when experience totals twenty times the current level (default).\n\n\n\n"
+                response = "**GENERAL INFO**\n\n\n\nThis bot supports character profiles, leveling/experience, sparring, random encounters, monsters, equipment/inventory/economy, and spells/melee attacks.\n\n\n\nSome commands only require the name of the character or spell, like `=editmonster Evil Dead`. Other commands will initiate a DM that has menus that you can reply to for setting up or modifying game parameters. If the user has DMs disabled, the bot will reply in the same channel as the user's command.\n\n\n\n**ROLES**\n\n\n\nThere are four roles required to use the bot.\n\n`Admin:` The admin can run all commands of the bot, such as adding and deleting spells or items. The server owner must set the admin role.\n\n`Game Moderator:` The game moderator is able to start random encounters, add or delete monsters, give money, and give items.\n\n`NPC Manager:` The NPC manager is able to create, edit and delete NPCs.\n\n`Player:` A player is able to add, edit, and delete their character profile, and play as their character, and post as NPCs if allowed, and buy and sell items, and trade with other players. An admin role user must approve new characters.\n\n\n\n**LEVELING**\n\n\n\nLeveling is granted by gaining experience. Experience is gained by random encounters, sparring, or granted by a game moderator. A new level is achieved when experience totals twenty times the current level (default).\n\nFor more information, see the wiki: https://github.com/themidnight12am/rpmastermind/wiki#general-information\n\n"
             elif parsed_string == 'buffs':
                 response = "**BUFF COMMANDS**\n\n\n\n=`=newbuff` *Admin* Create a new buff.\n\n`=editbuff` Edit an existing buff.\n\n`=deletebuff` Delete a buff from the server.\n\n`=givebuff` Give a buff to a character.\n\n`=takebuff` Take a buff from a character.\n\n`=buff` Use a buff on a character during a spar or encounter.\n\n"
-                fields = "**BUFF FIELDS**\n\n\n\n`BuffName:` The name of the buff spell.\n\n`ManaCost:` The amount of mana drained to use the buff.\n\n`MinimumLevel:` The minimum level required to use the buff.\n\n`StatMod:` The status modified by the buff.\n\n`Modifier:` The amount, positive or negative, of the buff's modification to the status.\n\n`Description:` A free text desciption of the buff.\n\n"
-
+#                fields = "**BUFF FIELDS**\n\n\n\n`BuffName:` The name of the buff spell.\n\n`ManaCost:` The amount of mana drained to use the buff.\n\n`MinimumLevel:` The minimum level required to use the buff.\n\n`StatMod:` The status modified by the buff.\n\n`Modifier:` The amount, positive or negative, of the buff's modification to the status.\n\n`Description:` A free text desciption of the buff.\n\n"
+                fields = "For buff fields, see: https://github.com/themidnight12am/rpmastermind/wiki#buff-fields\n\n"
             elif parsed_string == 'armaments':
                 response = "**ARMAMENTS COMMANDS**\n\n\n\n`=newarmament` Create a new armament.\n\n`=editarmament` Edit an existing armament.\n\n`=deletearmament` Delete an armament from the game.\n\n`=givearmament` Give an armament to a character.\n\n`=takearmament` Take an armament from a character.\n\n`=equiparmament` Equip a character with an armament from their inventory in an available, matching slot.\n\n`=unequiparmament` Remove an armamemnt from an equipped slot on a character.\n\n"
-                fields = "**ARMAMENT FIELDS**\n\n\n\n`ArmamentName`: The display name of the armament.\n\n`Description`: The free text description of the armament.\n\n`ArmamentCost`: How much currency the armament will sell for.\n\n`MinimumLevel`: The minimum level required to use the armament.\n\n`StatMod`: The status field modified by the armament (Attack, MagicAttack or Agility)\n\n`Modifier`: The amount a statistic is modified by the armament.\n\n`Slot`: The slot the armament can be equipped in (Head, Hand, Chest, or Feet)\n\n`MinimumDamage`: The minimum damage the armament can do (zero for status only items).\n\n`MaximumDamage`: The maximum amount of damage the armament can do (zero for status only items).\n\n`Defense`: The amount of defense added by the armament (zero for non-defensive armaments).\n\n"
+                fields = "For armament fields, see: https://github.com/themidnight12am/rpmastermind/wiki#armament-fields\n\n"
+#                fields = "**ARMAMENT FIELDS**\n\n\n\n`ArmamentName`: The display name of the armament.\n\n`Description`: The free text description of the armament.\n\n`ArmamentCost`: How much currency the armament will sell for.\n\n`MinimumLevel`: The minimum level required to use the armament.\n\n`StatMod`: The status field modified by the armament (Attack, MagicAttack or Agility)\n\n`Modifier`: The amount a statistic is modified by the armament.\n\n`Slot`: The slot the armament can be equipped in (Head, Hand, Chest, or Feet)\n\n`MinimumDamage`: The minimum damage the armament can do (zero for status only items).\n\n`MaximumDamage`: The maximum amount of damage the armament can do (zero for status only items).\n\n`Defense`: The amount of defense added by the armament (zero for non-defensive armaments).\n\n"
             elif parsed_string == 'armories':
                 response = "**ARMORY COMMANDS**\n\n\n\n`=newarmory` Create a new armory.\n\n`=editarmory` Edit an existing armory.\n\n`=deletearmory` Delete an armory from the game.\n\n`=addarmoryitem` Add items to an armory.\n\n`=deletearmoryitem` Delete an item from the armory.\n"
                 fields = "**ARMORY FIELDS**\n\n\n\n`ArmoryName:` The display name of the armory.\n\n`ArmamentList:` The list of armaments for sale at this armory.\n"
+                fields = "For armory fields, see: https://github.com/themidnight12am/rpmastermind/wiki#armory-fields\n\n"
             if fields:
                 await reply_message(message, response + fields)
             else: 
@@ -2839,6 +2899,96 @@ async def on_message(message):
                 await reply_message(message, "Please check your DMs for instructions on how to create a new character, <@" + str(message.author.id) + ">.")
                 
                 await direct_message(message, "You have requested a new default character! Please type in the response the **first and last names of the character**, and then enter each field as a reply to the DMs. When you have filled out all fields, the character will be created!")
+        elif command == 'newrandomchar':
+            if not role_check(guild_settings[message.guild.id]["PlayerRole"], message.author):
+                await reply_message(message, "You must have the player role to create a new character.")
+                return
+
+            male_first_name_list = ["Ferris", "Redmond", "Raphael", "Orion", "Caspian", "Aramis", "Lucian", "Storm", "Percival", "Gawain", "Perseus", "Cormac", "Leon", "Patrick", "Robert", "Morgan", "Brandon", "Sven", "Roland", "Ronan", "Edmund", "Adam", "Edric", "Martin", "Odin", "Bayard", "Laurent", "Faramond", "Finn", "Edward", "Tristan", "Emil", "Zephyr", "Soren", "Arthur", "Robin", "Marcel", "Roman", "Beowulf"", ""Seth", "Tristan", "Arthur", "Edmund", "Percival", "Ronan", "Thor", "Leon", "Roman", "Adam", "Ferris", "Zephyr", "Gawain", "Perseus", "Cormac", "Lydan", "Syrin", "Ptorik", "Joz", "Varog", "Gethrod", "Hezra", "Feron", "Ophni", "Colborn", "Fintis", "Gatlin", "Jinto", "Hagalbar", "Krinn", "Lenox", "Revvyn", "Hodus", "Dimian", "Paskel", "Kontas", "Weston", "Azamarr ", "Jather ", "Tekren ", "Jareth", "Adon", "Zaden", "Eune ", "Graff", "Tez", "Jessop", "Gunnar", "Pike", "Domnhar", "Baske", "Jerrick", "Mavrek", "Riordan", "Wulfe", "Straus", "Tyvrik ", "Henndar", "Favroe", "Whit", "Jaris", "Renham", "Kagran", "Lassrin ", "Vadim", "Arlo", "Quintis", "Vale", "Caelan", "Yorjan", "Khron", "Ishmael", "Jakrin", "Fangar", "Roux", "Baxar", "Hawke", "Gatlen", "Barak", "Nazim", "Kadric", "Paquin", " ", "", "Kent", "Moki", "Rankar", "Lothe", "Ryven", "Clawsen", "Pakker", "Embre", "Cassian", "Verssek", "Dagfinn", "Ebraheim", "Nesso", "Eldermar", "Rivik", "Rourke", "Barton", "Hemm", "Sarkin", "Blaiz ", "Talon", "Agro", "Zagaroth", "Turrek", "Esdel", " ", "", "Lustros", "Zenner", "Baashar ", "Dagrod ", "Gentar", "Feston"]
+            female_first_name_list = ["Ayrana", "Resha", "Varin", "Wren", "Yuni", "Talis", "Kessa", "Magaltie", "Aeris", "Desmina", "Krynna", "Asralyn ", "Herra", "Pret", "Kory", "Afia", "Tessel", "Rhiannon", "Zara", "Jesi", "Belen", "Rei", "Ciscra", "Temy", "Renalee ", "Estyn", "Maarika", "Lynorr", "Tiv", "Annihya", "Semet", "Tamrin", "Antia", "Reslyn", "Basak", "Vixra", "Pekka ", "Xavia", "Beatha ", "Yarri", "Liris", "Sonali", "Razra ", "Soko", "Maeve", "Everen", "Yelina", "Morwena", "Hagar", "Palra", "Elysa", "Sage", "Ketra", "Lynx", "Agama", "Thesra ", "Tezani", "Ralia", "Esmee", "Heron", "Naima", "Rydna ", "Sparrow", "Baakshi ", "Ibera", "Phlox", "Dessa", "Braithe", "Taewen", "Larke", "Silene", "Phressa", "Esther", "Anika", "Rasy ", "Harper", "Indie", "Vita", "Drusila", "Minha", "Surane", "Lassona", "Merula", "Kye", "Jonna", "Lyla", "Zet", "Orett", "Naphtalia", "Turi", "Rhays", "Shike", "Hartie", "Beela", "Leska", "Vemery ", "Lunex", "Fidess", "Tisette", "Partha"]
+            unisex_first_name_list = []
+            last_name_list = ["Starbringer","Leafgreen","Smith","Thundershaw","Dreamweaver","McAle","Hale","Zendor","Zoaraster","Horserider","Stormwalker","Abawi", "Allard", "Adara", "Abbott", "Acampora", "Ackerman", "Ackroyd", "Abbington", "Axworthy", "Ainge", "Abernathy", "Atkinson", "Abner", "Abella", "Agholor", "Allred", "Asola", "Abrams", "Acker", "Abrell", "Acuff", "Archer", "Asterio", "Adair", "Albright", "Adelson", "Atwood", "Aguillar", "Adler", "Arrowood", "Agnew", "Akuna", "Alcott", "Alstott", "Austin", "Algarotti", "Alvarez", "Armani", "Anderson", "Amherst", "Adkins", "Ayesa", "Argento", "Arrowood", "Andruzzi", "Abraham", "Angle", "Armstrong", "Attard", "Annenberg", "Arrhenius", "Acosta", "Antrican", "Adderley", "Atwater", "Agassi", "Apatow", "Archeletta", "Averescu", "Arrington", "Agrippa", "Aiken", "Albertson", "Alexander", "Amado", "Anders", "Armas", "Akkad", "Aoki", "Aldrich", "Almond", "Alinsky", "Agnello", "Alterio", "Atchley",  "Bynes", "Bray", "Budreau", "Byrne", "Bragg", "Banner", "Bishop", "Burris", "Boggs", "Brembilla", "Booth", "Bullard", "Booker", "Buckner", "Borden", "Breslin", "Bryant", "BIles", "Brunt", "Brager", "Brandt", "Bosa", "Bradshaw", "Brubaker", "Berry", "Brooks", "Bandini", "Bristow", "Barrick", "Biddle", "Brennan", "Brinkmann", "Benz", "Braddock", "Bright", "Berman", "Bracco", "Bartley", "Briggs", "Bonanno", "Boyle", "Beeks", "Bernthal", "Boldon", "Bowser", "Benwikere", "Bowman", "Bamberger", "Bowden", "Batch", "Blaustein", "Blow", "Boulware", "Bezos", "Boulder", "Bauer", "Ballard", "Benton", "Bixby", "Bostwick", "Biles", "Bobusic", "Belinski", "Blood", "Bisley", "Bettis", "Bensen", "Binion", "Bloch", "Blixt", "Bellisario", "Botkin", "Benoit", "BInda", "Baldwin", "Bennett", "Bourland", "Bester", "Bender", "Best", "Bald", "Bersa", "Belt", "Bourne", "Barks", "Beebe", "Banu", "Bozzelli", "Bogaerts",  "Cyrus", "Craggs", "Crisper", "Cotheran", "Curry", "Conard", "Cutler", "Coggins", "Cates", "Crisp", "Curio ", "Creed", "Costner", "Cortse", "Cunningham", "Cooper", "Cullen", "Castle", "Cugat", "Click", "Cassidy", "Crespo", "Crusher", "Cooper", "Coates", "Crowley", "Creel", "Crassus", "Cogdill", "Cross", "Crabtree", "Cranham", "Carver", "Cox", "Coltrane", "Chatwin", "Conklin", "Colt", "Coulter", "Cleveland", "Coppens", "Coolidge", "Copeland", "Celino", "Coffin", "Cena", "Conti ", "Coin", "Connelly", "Cents", "Carney", "Carmichael", "Coffey", "Carling", "Christie", "Chadwick", "Cobo", "Clay", "Capra", "Candy", "Clancy", "Chalk", "Chambers", "Callahan", "Cirque", "Cabrera-Bello", "Cherry", "Cannon", "Chung", "Cave", "Challenger", "Cobb", "Calaway", "Chalut", "Cayce", "Cahill", "Cruz", "Cohen", "Caylor", "Cagle", "Cline", "Crawford", "Cleary", "Cain", "Champ", "Cauley", "Claxton"    "Dubois", "Darby", "Draper", "Dwyer", "Dixon", "Danton", "Devereaux", "Ditka", "Dominguez", "Decker", "Dobermann", "Dunlop", "Dumont", "Dandridge", "Diamond", "Dobra ", "Dukas", "Dyer", "Decarlo", "Delpy", "Dufner", "Driver", "Dalton", "Dark", "Dawkins", "Driskel", "Derbyshire", "Davenport", "Dabney", "Dooley", "Dickerson", "Donovan", "Dallesandro", "Devlin", "Donnelly", "Day", "Daddario", "Donahue", "Denver", "Denton", "Dodge", "Dempsey", "Dahl", "Drewitt",  "Earp", "Eberstark ", "Egan", "Elder", "Eldridge", "Ellenburg", "Eslinger", "England", "Epps", "Eubanks", "Everhart", "Evert", "Eastwood", "Elway", "Eslinger", "Ellerbrock", "Edge", "Endo", "Etter", "Ebersol", "Everson", "Earwood", "Ekker", "Escobar", "Edgeworth",  "Future", "Fitzpatrick", "Fontana", "Fenner", "Furyk", "Finch", "Fullbright", "Fassbinder", "Flood", "Fong", "Fleetwood", "Fugger", "Frost", "Fsik", "Fawcett", "Fishman", "Freeze", "Fissolo", "Foley", "Fairchild", "Freeman", "Flanagan", "Freed", "Fogerty", "Foster", "Finn", "Fletcher", "Floris", "Flynn", "Fairbanks", "Fawzi ", "Finau", "Floquet ", "Fleiss", "Ferguson", "Froning", "Fitzgerald", "Fingermann", "Flagg", "Finchum", "Flair", "Ferber", "Fuller", "Farrell", "Fenton", "Fangio", "Faddis", "Ferenz", "Farley",  "Gundlach", "Gannon", "Goulding", "Greenway", "Guest", "Gillis", "Gellar", "Gaither", "Griffith", "Grubbs", "Glass", "Gotti", "Goodwin", "Grizzly", "Glover", "Grimes", "Gleason", "Gardner", "Geske", "Griffo", "Glunt", "Golden", "Gardel", "Gribble", "Grell", "Gearey", "Grooms", "Glaser", "Greer", "Geel", "Gallagher", "Glick", "Graber ", "Gore", "Gabbard", "Gelpi", "Gilardi", "Goddard", "Gabel", "Hyde", "Hood", "Hull", "Hogan", "Hitchens", "Higgins", "Hodder", "Huxx", "Hester", "Huxley", "Hess", "Hutton", "Hobgood", "Husher", "Hitchcock", "Huffman", "Herrera", "Humber", "Hobbs", "Hostetler", "Henn", "Horry", "Hightower", "Hindley", "Hitchens", "Holiday", "Holland", "Hitchcock", "Hoagland", "Hilliard", "Harvick", "Hardison", "Hickey", "Heller", "Hartman", "Halliwell", "Hughes", "Hart", "Healy", "Head", "Harper", "Hibben", "Harker", "Hatton", "Hawk", "Hardy", "Hadwin", "Hemmings", "Hembree", "Helbig", "Hardin", "Hammer", "Hammond", "Haystack", "Howell", "Hatcher", "Hamilton", "Halleck", "Hooper", "Hartsell", "Henderson", "Hale", "Hokoda", "Heers", "Homa", "Hanifin", "Most Common Last Names Around the World" ,    "Inch", "Inoki", "Ingram", "Idelson", "Irvin", "Ives", "Ishikawa", "Irons", "Irwin", "Ibach", "Ivanenko", "Ibara"    "Jurado", "Jammer", "Jagger", "Jackman", "Jishu", "Jingle", "Jessup", "Jameson", "Jett", "Jackson",  "Kulikov ", "Kellett", "Koo", "Kitt", "Keys", "Kaufman", "Kersey", "Keating", "Kotek ", "Kuchar", "Katts", "Kilmer", "King", "Kubiak", "Koker", "Kerrigan", "Kumara", "Knox", "Koufax", "Keagan", "Kestrel", "Kinder", "Koch", "Keats", "Keller", "Kessler", "Kobayashi", "Klecko", "Kicklighter", "Kincaid", "Kershaw", "Kaminsky", "Kirby", "Keene", "Kenny", "Keogh", "Kipps",   "Salvador Dali", "Salvador Dali"    "Litvak", "Lawler", "London", "Lynch", "Lacroix", "Ledford", "LeMay", "Lovejoy", "Lombardo", "Lovecraft", "Laudermilk", "Locke", "Leishman", "Leary", "Lott", "Ledger", "Lords", "Lacer", "Longwood", "Lattimore", "Laker", "Lecter", "Liston", "Londos", "Lomax", "Leaves ", "Lipman", "Lambert", "Lesnar", "Lazenby", "Lichter", "Lafferty", "Lovin", "Lucchesi", "Landis", "Lopez", "Lentz", "Murray", "Morrison", "McKay", "Merchant", "Murillo", "Mooney", "Murdock", "Matisse", "Massey", "McGee", "Minter", "Munson", "Mullard", "Mallory", "Meer ", "Mercer", "Mulder", "Malik", "Moreau ", "Metz", "Mudd", "Meilyr", "Motter", "McNamara", "Malfoy", "Moses", "Moody", "Morozov", "Mason", "Metcalf", "McGillicutty", "Montero", "Molinari", "Marsh", "Moffett", "McCabe", "Manus", "Malenko", "Mullinax", "Morrissey", "Mantooth", "Mintz", "Messi", "Mattingly", "Mannix", "Maker", "Montoya", "Marley", "McKnight", "Magnusson ", "Marino", "Maddox", "Macklin", "Mackey", "Morikowa", "Mahan", "Necessary", "Nicely", "Nejem", "Nunn", "Neiderman", "Naillon", "Nyland", "Novak", "Nygard", "Norwood", "Norris", "Namath", "Nabor", "Nash", "Noonan", "Nolan ", "Nystrom", "Niles", "Napier", "Nunley", "Nighy", "Overholt", "Ogletree", "Opilio ", "October", "Ozu", "O'Rourke", "Owusu", "Oduya", "Oaks", "Odenkirk", "Ottinger", "O'Donnell", "Orton", "Oakley", "Oswald", "Ortega", "Ogle", "Orr", "Ogden", "Onassis", "Olson", "Ollenrenshaw", "O'Leary", "O'Brien", "Oldman", "O'Bannon", "Oberman", "O'Malley", "Otto", "Oshima",    "Prado", "Prunk", "Piper", "Putnam", "Pittman", "Post", "Price", "Plunkett", "Pitcher", "Pinzer", "Punch", "Paxton", "Powers", "Previn", "Pulman", "Puller", "Peck", "Pepin", "Platt", "Powell", "Pawar", "Pinder", "Pickering", "Pollock", "Perrin", "Pell", "Pavlov", "Patterson", "Perabo", "Patnick", "Panera", "Prescott", "Portis", "Perkins", "Palmer", "Paisley", "Pladino", "Pope", "Posada", "Pointer", "Poston", "Porter", "Quinn", "Quan", "Quaice", "Quaid", "Quirico", "Quarters", "Quimby", "Qua", "Quivers", "Quall", "Quick", "Qugg", "Quint", "Quintero",  "Leonardo da Vinci", "Leonardo da Vinci"    "Rudd", "Ripperton", "Renfro", "Rifkin", "Rand", "Root", "Rhodes", "Rowland", "Ramos", "Ryan", "Rafus", "Radiguet", "Ripley", "Ruster", "Rush", "Race", "Rooney", "Russo", "Rude", "Roland", "Reader", "Renshaw", "Rossi", "Riddle", "Ripa", "Richter", "Rosenberg", "Romo", "Ramirez", "Reagan", "Rainwater", "Romirez", "Riker", "Riggs", "Redman", "Reinhart", "Redgrave", "Rafferty", "Rigby", "Roman", "Reece",  "Sutton", "Swift", "Sorrow", "Spinks", "Suggs", "Seagate", "Story", "Soo", "Sullivan", "Sykes", "Skirth", "Silver", "Small", "Stoneking", "Sweeney", "Surrett", "Swiatek", "Sloane", "Stapleton", "Seibert", "Stroud", "Strode", "Stockton", "Scardino", "Spacek", "Spieth", "Stitchen", "Stiner", "Soria", "Saxon", "Shields", "Stelly", "Steele", "Standifer", "Shock", "Simerly", "Swafford", "Stamper", "Sotelo", "Smoker", "Skinner", "Shaver", "Shivers", "Savoy", "Small", "Skills", "Sinclair", "Savage", "Sereno", "Sasai", "Silverman", "Silva", "Shippen", "Sasaki", "Sands", "Shute", "Sabanthia", "Sheehan", "Sarkis", "Shea", "Santos", "Snedeker", "Stubbings", "Streelman", "Skaggs", "Spears", "Dave Chappelle", "Dave Chappelle"    "Twigg", "Tracy", "Truth", "Tillerson", "Thorisdottir ", "Tooms", "Tripper", "Tway", "Taymor", "Tamlin", "Toller", "Tussac", "Turpin", "Tippett", "Tabrizi", "Tanner", "Tuco", "Trumbo", "Tucker", "Theo", "Thain", "Trapp", "Trumbald ", "Trench", "Terrella", "Tait", "Tanaka", "Tapp", "Tepper", "Trainor", "Turner", "Teague", "Templeton", "Temple", "Teach", "Tam"    "Udder", "Uso", "Uceda", "Umoh", "Underhill", "Uplinger", "Ulett", "Urtz", "Unger", "Vroman", "Vess", "Voight", "Vegas", "Vasher", "Vandal", "Vader", "Volek", "Vega", "Vestine", "Vaccaro", "Vickers",  "Witt", "Wolownik", "Winding", "Wooten ", "Whitner", "Winslow", "Winchell", "Winters", "Walsh", "Whalen", "Watson", "Wooster", "Woodson", "Winthrop", "Wall", "Wight", "Webb", "Woodard", "Wixx", "Wong", "Whesker", "Wolfenstein", "Winchester", "Wire", "Wolf", "Wheeler", "Warrick", "Walcott", "Wilde", "Wexler", "Wells", "Weeks", "Wainright", "Wallace", "Weaver", "Wagner", "Wadd", "Withers", "Whitby", "Woodland", "Woody", "Xavier", "Xanders", "Xang", "Ximinez", "Xie", "Xenakis", "Xu", "Xiang", "Xuxa",  "Yearwood", "Yellen", "Yaeger", "Yankovich", "Yamaguchi", "Yarborough", "Youngblood", "Yanetta", "Yadao", "Yale", "Yasumoto", "Yates", "Younger", "Yoakum", "York", "Yount",  "Zuckerberg", "Zeck", "Zavaroni", "Zeller", "Zipser", "Zedillo", "Zook", "Zeigler", "Zimmerman", "Zeagler", "Zale", "Zasso", "Zant", "Zappa", "Zapf", "Zahn", "Zabinski", "Zade", "Zabik", "Zader", "Zukoff", "Zullo", "Zmich", "Zoller"]
+            race_list = ["Human","Elf","Dwarf","Gnome","Troll","Elemental","Orc","Angel","Demon","Vampire","Shadow walker","Deity","Xendorian","Archangel","Archdemon","Undead","Drow","Ghost","Dragon","Werewolf","Fairy","Dark Fairy","Pixie","Shifter","Merperson","Sentient animal","Goblin","Halfling","Kitsune","Centaur","Satyr","Dryad","Nightmare","Incarnate","Death walker","Yeti","Wendigo","Monster","High Elf","Wood Elf","Dark Elf","Manticore","Gryphon","Phoenix","Ent"]
+            height_min_feet = 1
+            height_max_feet = 8
+            height_inches_max = 11
+            weight_min = 50
+            weight_max = 400
+            age_min = 18
+            age_max = 2000
+            occupation_list = []
+            occupation_list = ["Warrior","Knight","Hunter","Blacksmith","Noble","Royalty","Slave","Mercenary","Caster","Mage","Wizard","Warlock","Protector","Healer","Medium","Psychic","Assassin","Swordsman","Thief","Cobbler","Potion maker","Preacher","Priest","Paladin","Witch","Warlock","Sorcerer","Servant","Escort","Prostitute","Solider","Bartender","Merchant","Sailor","Pirate","Archer","Guard","Slayer","Alchemist","Apothecary","Shopkeeper","Trader","Wizard","Fighter","Teacher","Physician","Philosopher","Farmer","Shepherd","Harbinger","Messenger","Horserider","Chef","Night watch","None","Beggar","Researcher","Advisor","Judge","Executioner","Commander","Captain","Fisher","Ranchhand","Druid"]
+            gender_list = ["Male","Female","Non-binary","Genderfluid"]
+            origin_list = ["Unknown","Earth","Rhydin","Offworld"]
+            powers_list = ["Psychic","Lightning","Light","Healing","Destruction","Darkness","Telepathy","Psychokinesis","Flight","Storms","Water","Air","Wind","Earth","Fire","Talking to the dead","Plane-walking","Illusion","Glamor","Holy","White Magic","Black Magic","Seduction","Speed","Superhuman strength","Immortality","Energy manipulation","Reality warping","Spaceflight","Cloaking","Shadow"]
+            strengths_list = ["Melee combat","Magic","Physical strength","Physical speed","Highly intelligent","Expert swordfighter","Martial arts","Strategic","Charismatic","Highly perceptive","Expert with firearms","Expert archer","Resistant to magic"]
+            weaknesses_list = ["Black magic","Light","Holy power","Evil power","Easily seduced","Gullible","Socially mnanipulatable","Low intelligence","Fire","Water","Lightning","Darkness","Shadow","Astral attacks","Weak physically","Lost immortality","Reduced powers","Trauma in past","Phobias","Anxiety","Poor training","Little magical capacity"]
+            personality_list = ["Warm","Cold","Aloof","Caring","Gregarious","Affable","Talkative","Strong, silent type","Brash","Boisterous","Lazy","Shy","Fearful","Happy-go-lucky","Perky","Perverted","Sociopathic","Formal","Casual","Creative","Nice","Mean","Rude","Kind","Gentle","Harsh","Asexual","Wild in bed","Stoic","Charismatic","Charming","Romantic","Detached","Depressed","Worrywart","Troubled by their past","Carries a grudge","Loving","Hateful","Spiteful","Angry","Short fuse","Patient","Passionate","Empty"]
+            skills_list = ["Archery","Swordplay","Reading","Writing","Science","Technology","Music","Telling jokes","Lying when needed","Magic","Alchemy","Healing","Medicine","Potions","Elixirs","Chemistry","Knowledge of the beyond","Master illusionist","Computers","Mixing drinks","Telling stories","Inspiring others","Leading","Fighting","Organizing","Art","Scuplting","Crafts","Metalworking","Buidling structures","Tinkering"]
+            
+            gender = random.choice(gender_list)
+            if gender == 'Male':
+                first_name = random.choice(male_first_name_list)
+            elif gender == 'Female':
+                first_name = random.choice(female_first_name_list)
+            else:
+                first_name = random.choice(male_first_name_list + female_first_name_list)
+            last_name = random.choice(last_name_list)
+            
+            race = random.choice(race_list)
+            
+            occupation = random.choice(occupation_list)
+            
+            if race == 'Human':
+                age = random.randint(18,100)
+            else:
+                age = random.randint(age_min, age_max)
+            
+            origin = random.choice(origin_list)
+            height_feet = random.randint(height_min_feet, height_max_feet)
+            height_inches = random.randint(0,11)
+            weight = random.randint(weight_min, weight_max)
+            
+            number_of_strengths = random.randint(1,5)
+            strengths = ""
+            for x in range(0,number_of_strengths):
+                strengths = strengths + random.choice(strengths_list) + ", "
+            number_of_weaknesses = random.randint(1,5)
+            weaknesses = ""
+            for x in range(0,number_of_weaknesses):
+                weaknesses = weaknesses  + random.choice(weaknesses_list) + ", " 
+            powers = ""
+            
+            number_of_powers = random.randint(1,3)
+            for x in range(0,number_of_powers):
+                powers = powers  + random.choice(powers_list) + ", " 
+            number_of_skills = random.randint(1,5)
+            skills = ""
+            for x in range(0,number_of_skills):
+                skills = skills  + random.choice(skills_list) + ", "     
+            personality = ""
+            number_of_personality = random.randint(2,6)
+            for x in range(0,number_of_personality):
+                personality = personality  + random.choice(personality_list) + ", "                     
+                
+            if message.author.id not in dm_tracker.keys():
+                await initialize_dm(message.author.id)
+            dm_tracker[message.author.id]["currentcommand"] = 'newrandomchar'
+            dm_tracker[message.author.id]["fieldlist"] = ["CharacterName","Age","Race","Gender","Height","Weight","Playedby","Origin","Occupation","PictureLink","Strengths","Weaknesses","Powers","Skills","Personality"]                                                   
+            dm_tracker[message.author.id]["currentfield"] = 0
+            dm_tracker[message.author.id]["fielddict"] = [first_name + " " + last_name, str(age), race, gender, str(height_feet) + "'" + str(height_inches) + r"\"", str(weight) + " lbs", "None", origin, occupation, "None", strengths, weaknesses, powers, skills, personality] 
+            dm_tracker[message.author.id]["server_id"] = message.guild.id
+            dm_tracker[message.author.id]["commandchannel"] = message.channel
+            
+            counter = 0
+            response = "**RANDOM CHARACTER INFORMATION**\n\n"
+            for field in dm_tracker[message.author.id]["fieldlist"]:
+                response = response + "**" + field + ":** " + dm_tracker[message.author.id]["fielddict"][counter] + "\n"
+                counter = counter + 1
+            await reply_message(message, response)
+            
+            await direct_message(message, "Would you like to add this character to the applicant characters list? Respond **YES** to apply, anything else to discard.")
+                
         elif command == 'givestatpoints':
             if not role_check(guild_settings[message.guild.id]["GameModeratorRole"], message.author):
                 await reply_message(message, "You must have the GM role to give stat points.")
@@ -2925,7 +3075,7 @@ async def on_message(message):
             if message.author.id not in dm_tracker.keys():
                 await initialize_dm(message.author.id)
             dm_tracker[message.author.id]["fieldlist"] = ["CharacterName","Age","Race","Gender","Height","Weight","Playedby","Origin","Occupation","PictureLink"]
-            dm_tracker[message.author.id]["currentfield"] = 1
+            dm_tracker[message.author.id]["currentfield"] = 0
             dm_tracker[message.author.id]["fielddict"]= []
             dm_tracker[message.author.id]["fielddict"].append(parsed_string)
             dm_tracker[message.author.id]["currentcommand"] = 'editchar'
@@ -2941,7 +3091,7 @@ async def on_message(message):
             
             await reply_message(message, "Please check your DMs for instructions on how to edit a character, <@" + str(message.author.id) + ">.")
             
-            await direct_message(message, "You have requested to edit the character **" + parsed_string + "**. Please type in the response the answer to each field to update, or *skip* to leave as is. When you have filled out all fields, the character will be updated!\nThe first field is **" + dm_tracker[message.author.id]["fieldlist"][1] + "** and its current value is **" + dm_tracker[message.author.id]["fielddict"][1] + "**.")
+            await direct_message(message, "You have requested to edit the character **" + parsed_string + "**. Please type in the response the answer to each field to update, or *skip* to leave as is. When you have filled out all fields, the character will be updated!\nThe first field is **" + dm_tracker[message.author.id]["fieldlist"][0] + "** and its current value is **" + dm_tracker[message.author.id]["fielddict"][0] + "**.")
             
 
         elif command == 'listmychars':
@@ -3026,7 +3176,7 @@ async def on_message(message):
 
             name_re = re.compile(r"Name: (?P<name>.+)")
             bio_re = re.compile(r"Biography: (?P<bio>.+)", re.S | re.MULTILINE)
-            m = name_re.search(dm_tracker[message.author.id]["parameters"])
+            m = name_re.search(parsed_string)
             if m:
                 char_name = m.group('name')
 
@@ -3397,7 +3547,7 @@ async def on_message(message):
             if message.author.id not in dm_tracker.keys():
                 await initialize_dm(message.author.id)
             dm_tracker[message.author.id]["currentcommand"] = 'newmelee'
-            dm_tracker[message.author.id]["fieldlist"] = ["AttackName","StaminaCost","MinimumLevel","DamageMultiplier","Description"]                                                   
+            dm_tracker[message.author.id]["fieldlist"] = ["AttackName","StaminaCost","MinimumLevel","DamageMultiplier","Description","PictureLink"]                                                   
             dm_tracker[message.author.id]["currentfield"] = 0
             dm_tracker[message.author.id]["fielddict"] = [] 
             dm_tracker[message.author.id]["server_id"] = message.guild.id
@@ -3414,7 +3564,7 @@ async def on_message(message):
             if message.author.id not in dm_tracker.keys():
                 await initialize_dm(message.author.id)
             dm_tracker[message.author.id]["currentcommand"] = 'newvendor'
-            dm_tracker[message.author.id]["fieldlist"] = ["VendorName","ItemList"]                                                   
+            dm_tracker[message.author.id]["fieldlist"] = ["VendorName","ItemList","PictureLink"]                                                   
             dm_tracker[message.author.id]["currentfield"] = 0
             dm_tracker[message.author.id]["fielddict"] = [] 
             dm_tracker[message.author.id]["server_id"] = message.guild.id
@@ -3483,7 +3633,7 @@ async def on_message(message):
             
         elif command == 'listvendor':
             vendor_name = parsed_string
-            records = await select_sql("""SELECT ItemList FROM Vendors WHERE VendorName=%s;""", (vendor_name,))
+            records = await select_sql("""SELECT ItemList,PictureLink FROM Vendors WHERE VendorName=%s;""", (vendor_name,))
             if not records:
                 await reply_message(message, "No vendor found by that name!")
                 return
@@ -3495,7 +3645,7 @@ async def on_message(message):
                 item_record = await select_sql("""SELECT EquipmentName FROM Equipment WHERE Id=%s""",(item,))
                 for item_name in item_record:
                     response = response + item_name[0] + "\n"
-            await reply_message(message, response)
+            await reply_message(message + "\nPicture Link: " + row[1] + "\n", response)
         elif command == 'listvendors':
             if message.author.id not in dm_tracker.keys():
                 await initialize_dm(message.author.id)           
@@ -3511,7 +3661,7 @@ async def on_message(message):
             if message.author.id not in dm_tracker.keys():
                 await initialize_dm(message.author.id)
             dm_tracker[message.author.id]["currentcommand"] = 'newarmory'
-            dm_tracker[message.author.id]["fieldlist"] = ["ArmoryName","ArmamentList"]                                                   
+            dm_tracker[message.author.id]["fieldlist"] = ["ArmoryName","ArmamentList","PictureLink"]                                                   
             dm_tracker[message.author.id]["currentfield"] = 0
             dm_tracker[message.author.id]["fielddict"] = [] 
             dm_tracker[message.author.id]["server_id"] = message.guild.id
@@ -3567,7 +3717,7 @@ async def on_message(message):
                 item_record = await select_sql("""SELECT ArmamentName FROM Armaments WHERE Id=%s""",(item,))
                 for item_name in item_record:
                     response = response + item_name[0] + "\n"
-            await reply_message(message, response)
+            await reply_message(message + "\nPicture Link: " + row[1] + "\n", response)
         elif command == 'listarmories':
             if message.author.id not in dm_tracker.keys():
                 await initialize_dm(message.author.id)           
@@ -3579,25 +3729,25 @@ async def on_message(message):
             if not parsed_string:
                 await reply_message(message, "No spell name specified!")
                 return
-            records = await select_sql("""SELECT Element,ManaCost,MinimumLevel,DamageMultiplier,Description FROM Spells WHERE ServerId=%s AND SpellName=%s;""", (str(message.guild.id), parsed_string))
+            records = await select_sql("""SELECT Element,ManaCost,MinimumLevel,DamageMultiplier,Description,PictureLink FROM Spells WHERE ServerId=%s AND SpellName=%s;""", (str(message.guild.id), parsed_string))
             if not records:
                 await reply_message(message, "No spell found by that name!")
                 return
             response = "**SPELL DETAILS**\n\nSpell Name: " + parsed_string + "\n"
             for row in records:
-                response = response + "Element: " + row[0] + "\nMana Cost: " + str(row[1]) + "\nMinimum Level: " + str(row[2]) + "\nDamage Multiplier: " + str(row[3]) + "\nDescription: " + row[4] + "\n"
+                response = response + "Element: " + row[0] + "\nMana Cost: " + str(row[1]) + "\nMinimum Level: " + str(row[2]) + "\nDamage Multiplier: " + str(row[3]) + "\nDescription: " + row[4] + "\nPicture Link: " + row[5] + "\n"
             await reply_message(message, response)
         elif command == 'listmelee':
             if not parsed_string:
                 await reply_message(message, "No melee name specified!")
                 return
-            records = await select_sql("""SELECT StaminaCost,MinimumLevel,DamageMultiplier,Description FROM Melee WHERE ServerId=%s AND AttackName=%s;""", (str(message.guild.id), parsed_string))
+            records = await select_sql("""SELECT StaminaCost,MinimumLevel,DamageMultiplier,Description,PictureLink FROM Melee WHERE ServerId=%s AND AttackName=%s;""", (str(message.guild.id), parsed_string))
             if not records:
                 await reply_message(message, "No spell found by that name!")
                 return
             response = "**MELEE DETAILS**\n\nAttack Name: " + parsed_string + "\n"
             for row in records:
-                response = response + "Stamina Cost: " + str(row[0]) + "\nMinimum Level: " + str(row[1]) + "\nDamage Multiplier: " + str(row[2]) + "\nDescription: " + row[3] + "\n"
+                response = response + "Stamina Cost: " + str(row[0]) + "\nMinimum Level: " + str(row[1]) + "\nDamage Multiplier: " + str(row[2]) + "\nDescription: " + row[3] + "\nPicture Link: " + row[4] + "\n"
             await reply_message(message, response)            
         elif command == 'newitem':
             if not role_check(guild_settings[message.guild.id]["AdminRole"], message.author):
@@ -3679,14 +3829,14 @@ async def on_message(message):
             user_id = message.author.id
             server_id = message.guild.id
 
-            current_fields = await select_sql("""SELECT Description,StaminaCost,MinimumLevel,DamageMultiplier FROM Melee WHERE ServerId=%s AND AttackName=%s;""", (str(message.guild.id), parsed_string))
+            current_fields = await select_sql("""SELECT Description,StaminaCost,MinimumLevel,DamageMultiplier,PictureLink FROM Melee WHERE ServerId=%s AND AttackName=%s;""", (str(message.guild.id), parsed_string))
             if not current_fields:
                 await reply_message(message, "No melee attack found by that name!")
                 return
           
             if message.author.id not in dm_tracker.keys():
                 await initialize_dm(message.author.id)
-            dm_tracker[message.author.id]["fieldlist"] = ["Description","StaminaCost","MinimumLevel","DamageMultiplier"]
+            dm_tracker[message.author.id]["fieldlist"] = ["Description","StaminaCost","MinimumLevel","DamageMultiplier","PictureLink"]
             dm_tracker[message.author.id]["currentfield"] = 0
             dm_tracker[message.author.id]["fielddict"]= []
             dm_tracker[message.author.id]["currentcommand"] = 'editmelee'
@@ -3708,14 +3858,14 @@ async def on_message(message):
             user_id = message.author.id
             server_id = message.guild.id
 
-            current_fields = await select_sql("""SELECT Description,ManaCost,MinimumLevel,DamageMultiplier,Element FROM Spells WHERE ServerId=%s AND SpellName=%s;""", (str(message.guild.id), parsed_string))
+            current_fields = await select_sql("""SELECT Description,ManaCost,MinimumLevel,DamageMultiplier,Element,PictureLink FROM Spells WHERE ServerId=%s AND SpellName=%s;""", (str(message.guild.id), parsed_string))
             if not current_fields:
                 await reply_message(message, "No spell found by that name!")
                 return
           
             if message.author.id not in dm_tracker.keys():
                 await initialize_dm(message.author.id)
-            dm_tracker[message.author.id]["fieldlist"] = ["Description","ManaCost","MinimumLevel","DamageMultiplier","Element"]
+            dm_tracker[message.author.id]["fieldlist"] = ["Description","ManaCost","MinimumLevel","DamageMultiplier","Element","PictureLink"]
             dm_tracker[message.author.id]["currentfield"] = 0
             dm_tracker[message.author.id]["fielddict"]= []
             dm_tracker[message.author.id]["currentcommand"] = 'editspell'
@@ -3873,14 +4023,14 @@ async def on_message(message):
             user_id = message.author.id
             server_id = message.guild.id
                 
-            current_fields = await select_sql("""SELECT ArmamentName,Description,ArmamentCost,Slot,MinimumLevel,DamageMin,DamageMax,Defense,StatMod,Modifier FROM Armaments WHERE ServerId=%s AND ArmamentName%s;""", (str(message.guild.id), parsed_string))
+            current_fields = await select_sql("""SELECT ArmamentName,Description,ArmamentCost,Slot,MinimumLevel,DamageMin,DamageMax,Defense,StatMod,Modifier,PictureLink FROM Armaments WHERE ServerId=%s AND ArmamentName%s;""", (str(message.guild.id), parsed_string))
             if not current_fields:
                 await reply_message(message, "No armament found by that name!")
                 return
           
             if message.author.id not in dm_tracker.keys():
                 await initialize_dm(message.author.id)
-            dm_tracker[message.author.id]["fieldlist"] = ["ArmamentName","Description","ArmamentCost","Slot","MinimumLevel","DamageMin","DamageMax","Defense","StatMod","Modifier"]
+            dm_tracker[message.author.id]["fieldlist"] = ["ArmamentName","Description","ArmamentCost","Slot","MinimumLevel","DamageMin","DamageMax","Defense","StatMod","Modifier","PictureLink"]
             dm_tracker[message.author.id]["currentfield"] = 0
             dm_tracker[message.author.id]["fielddict"]= []
             dm_tracker[message.author.id]["currentcommand"] = 'editarmament'
@@ -3902,14 +4052,14 @@ async def on_message(message):
             user_id = message.author.id
             server_id = message.guild.id
                 
-            current_fields = await select_sql("""SELECT Description,Cost,MinimumLevel,StatMod,Modifier FROM Equipment WHERE ServerId=%s AND EquipmentName%s;""", (str(message.guild.id), parsed_string))
+            current_fields = await select_sql("""SELECT EquipmentDescription,EquipmentCost,MinimumLevel,StatMod,Modifier,PictureLink FROM Equipment WHERE ServerId=%s AND EquipmentName=%s;""", (str(message.guild.id), parsed_string))
             if not current_fields:
                 await reply_message(message, "No item found by that name!")
                 return
           
             if message.author.id not in dm_tracker.keys():
                 await initialize_dm(message.author.id)
-            dm_tracker[message.author.id]["fieldlist"] = ["Description","Cost","MinimumLevel","StatMod","Modifier"]
+            dm_tracker[message.author.id]["fieldlist"] = ["EquipmentDescription","EquipmentCost","MinimumLevel","StatMod","Modifier","PictureLink"]
             dm_tracker[message.author.id]["currentfield"] = 0
             dm_tracker[message.author.id]["fielddict"]= []
             dm_tracker[message.author.id]["currentcommand"] = 'edititem'
@@ -4542,7 +4692,39 @@ async def on_message(message):
             await reply_message(message, "Please check your DMs for instructions on how to create a new monster, <@" + str(message.author.id) + ">.")
             
             await direct_message(message, "You have requested a new monster! Please type in the response the **name of the monster**, and then enter each field as a reply to the DMs. When you have filled out all fields, the monster will be created!")                
+
+        elif command == 'editcharinfo':
+            if not role_check(guild_settings[message.guild.id]["PlayerRole"], message.author):
+                await reply_message(message, "You must be a member of the player role to edit edit character info!")
+                return        
+
+            current_fields = await select_sql("""SELECT IFNULL(Biography,'None'),IFNULL(Skills,'None'),IFNULL(Strengths,'None'),IFNULL(Weaknesses,'None'),IFNULL(Powers,'None'),IFNULL(Personality,'None'),IFNULL(Description,'None') FROM CharacterProfiles WHERE ServerId=%s AND CharacterName=%s;""", (str(message.guild.id), parsed_string))
+            if not current_fields:
+                await reply_message(message, "No character found by that name!")
+                return
+            for row in current_fields:
+                fields = row
+             
+            if message.author.id not in dm_tracker.keys():
+                await initialize_dm(message.author.id)
+            dm_tracker[message.author.id]["fieldlist"] = ["CharacterName","Biography","Skills","Strengths","Weaknesses","Powers","Personality","Description"]
+            dm_tracker[message.author.id]["currentfield"] = 1
+            dm_tracker[message.author.id]["fielddict"]= []
+            dm_tracker[message.author.id]["fielddict"].append(parsed_string)
+            dm_tracker[message.author.id]["currentcommand"] = 'editcharinfo'
+            dm_tracker[message.author.id]["server_id"] = message.guild.id
+            dm_tracker[message.author.id]["commandchannel"] = message.channel
+            dm_tracker[message.author.id]["parameters"] = parsed_string
+            counter = 0
+            for row in dm_tracker[message.author.id]["fieldlist"]:
+                dm_tracker[message.author.id]["fielddict"].append(fields[counter])
+                counter = counter + 1
+                if counter > len(dm_tracker[message.author.id]["fieldlist"]) - 2:
+                    break
             
+            await reply_message(message, "Please check your DMs for instructions on how to edit a character, <@" + str(message.author.id) + ">.")
+            
+            await direct_message(message, "You have requested to edit the character**" + parsed_string + "**. Please type in the response the answer to each field to update, or *skip* to leave as is. When you have filled out all fields, the character will be updated!\nThe first field is **" + dm_tracker[message.author.id]["fieldlist"][1] + "** and its current value is **" + dm_tracker[message.author.id]["fielddict"][1] + "**.")             
 
         elif command == 'editmonster':
             if not role_check(guild_settings[message.guild.id]["GameModeratorRole"], message.author):
@@ -4559,7 +4741,7 @@ async def on_message(message):
             if message.author.id not in dm_tracker.keys():
                 await initialize_dm(message.author.id)
             dm_tracker[message.author.id]["fieldlist"] = ["MonsterName","Description","Health","Element","Level","Attack","Defense","MagicAttack","MaxCurrencyDrop","PictureLink"]
-            dm_tracker[message.author.id]["currentfield"] = 1
+            dm_tracker[message.author.id]["currentfield"] = 0
             dm_tracker[message.author.id]["fielddict"]= []
             dm_tracker[message.author.id]["fielddict"].append(parsed_string)
             dm_tracker[message.author.id]["currentcommand"] = 'editmonster'
@@ -4602,25 +4784,25 @@ async def on_message(message):
             if not parsed_string:
                 await reply_message(message, "No item name specified!")
                 return
-            records = await select_sql("""SELECT EquipmentDescription, EquipmentCost, MinimumLevel, StatMod, Modifier FROM Equipment WHERE ServerId=%s AND EquipmentName=%s;""", (str(message.guild.id),parsed_string))
+            records = await select_sql("""SELECT EquipmentDescription, EquipmentCost, MinimumLevel, StatMod, Modifier, PictureLink FROM Equipment WHERE ServerId=%s AND EquipmentName=%s;""", (str(message.guild.id),parsed_string))
             if not records:
                 await reply_message(message, "No item found with that name!")
                 return
             response = "**ITEM DATA**\n\n"
             for row in records:
-                response = response + "Name: " + parsed_string + "\nDescription: " + row[0] + "\nPrice: " + str(row[1]) + "\nMinimum Level: " + str(row[2]) + "\nStat Modified: " + str(row[3]) + "\nModifier Change: " + str(row[4]) + "\n"
+                response = response + "Name: " + parsed_string + "\nDescription: " + row[0] + "\nPrice: " + str(row[1]) + "\nMinimum Level: " + str(row[2]) + "\nStat Modified: " + str(row[3]) + "\nModifier Change: " + str(row[4]) + "\nPicture Link: " + row[5] + "\n"
             await reply_message(message, response)
         elif command == 'listarmament':
             if not parsed_string:
                 await reply_message(message, "No item name specified!")
                 return
-            records = await select_sql("""SELECT Description, ArmamentCost, MinimumLevel, StatMod, Modifier, Slot, DamageMin, DamageMax, Defense FROM Armaments WHERE ServerId=%s AND ArmamentName=%s;""", (str(message.guild.id),parsed_string))
+            records = await select_sql("""SELECT Description, ArmamentCost, MinimumLevel, StatMod, Modifier, Slot, DamageMin, DamageMax, Defense, PictureLink FROM Armaments WHERE ServerId=%s AND ArmamentName=%s;""", (str(message.guild.id),parsed_string))
             if not records:
                 await reply_message(message, "No armament found with that name!")
                 return
             response = "**ARMAMENT DATA**\n\n"
             for row in records:
-                response = response + "Name: " + parsed_string + "\nDescription: " + row[0] + "\nPrice: " + str(row[1]) + "\nMinimum Level: " + str(row[2]) + "\nStat Modified: " + str(row[3]) + "\nModifier Change: " + str(row[4]) + "\nSlot: " + row[5] + "\nMinimum Damage: " + str(row[6]) + "\nMaximum Damage: " + str(row[7]) + "\nDefense: " + str(row[8]) + "\n"
+                response = response + "Name: " + parsed_string + "\nDescription: " + row[0] + "\nPrice: " + str(row[1]) + "\nMinimum Level: " + str(row[2]) + "\nStat Modified: " + str(row[3]) + "\nModifier Change: " + str(row[4]) + "\nSlot: " + row[5] + "\nMinimum Damage: " + str(row[6]) + "\nMaximum Damage: " + str(row[7]) + "\nDefense: " + str(row[8]) + "\nPicture Link: " + row[9] + "\n"
             await reply_message(message, response)
         elif command == 'listspell':
             if not parsed_string:
@@ -5222,16 +5404,16 @@ async def on_message(message):
                 await reply_message(message, "Database error!")
         elif command == 'listsetup':
             server_id = message.guild.id
-            records = await select_sql("""SELECT ServerId,AdminRole,GameModeratorRole,NPCRole,PlayerRole,GuildBankBalance,StartingHealth,StartingMana,StartingStamina,StartingAttack,StartingDefense,StartingMagicAttack,StartingAgility,StartingIntellect,StartingCharisma,HealthLevelRatio,ManaLevelRatio,StaminaLevelRatio,XPLevelRatio,HealthAutoHeal,ManaAutoHeal,StaminaAutoHeal FROM GuildSettings WHERE ServerId=%s;""",(str(message.guild.id),))
+            records = await select_sql("""SELECT ServerId,IFNULL(AdminRole,'0'),IFNULL(GameModeratorRole,'0'),IFNULL(NPCRole,'0'),IFNULL(PlayerRole,'0'),IFNULL(GuildBankBalance,'0'),IFNULL(StartingHealth,'0'),IFNULL(StartingMana,'0'),IFNULL(StartingStamina,'0'),IFNULL(StartingAttack,'0'),IFNULL(StartingDefense,'0'),IFNULL(StartingMagicAttack,'0'),IFNULL(StartingAgility,'0'),IFNULL(StartingIntellect,'0'),IFNULL(StartingCharisma,'0'),IFNULL(HealthLevelRatio,'0'),IFNULL(ManaLevelRatio,'0'),IFNULL(StaminaLevelRatio,'0'),IFNULL(XPLevelRatio,'0'),IFNULL(HealthAutoHeal,'0'),IFNULL(ManaAutoHeal,'0'),IFNULL(StaminaAutoHeal,'0') FROM GuildSettings WHERE ServerId=%s;""",(str(message.guild.id),))
             if not records:
                 await reply_message(message, "Not all settings found. Please run =newsetup to initialize all settings.")
                 return
             for row in records:
-                guild_settings[server_id]["AdminRole"] = "<@&" + row[1] + ">"
-                guild_settings[server_id]["GameModeratorRole"] = "<@&" + row[2] + ">"
-                guild_settings[server_id]["NPCRole"] = "<@&" + row[3] + ">"
-                guild_settings[server_id]["PlayerRole"] = "<@&" + row[4] + ">"
-                guild_settings[server_id]["GuildBankBalance"] = int(row[5])
+                guild_settings[server_id]["AdminRole"] = int(row[1])
+                guild_settings[server_id]["GameModeratorRole"] = int(row[2])
+                guild_settings[server_id]["NPCRole"] = int(row[3])
+                guild_settings[server_id]["PlayerRole"] = int(row[4])
+                guild_settings[server_id]["GuildBankBalance"] = float(row[5])
                 guild_settings[server_id]["StartingHealth"] = int(row[6])
                 guild_settings[server_id]["StartingMana"] = int(row[7])
                 guild_settings[server_id]["StartingStamina"] = int(row[8])
@@ -5249,8 +5431,12 @@ async def on_message(message):
                 guild_settings[server_id]["ManaAutoHeal"] = float(row[20])
                 guild_settings[server_id]["StaminaAutoHeal"] = float(row[21])
             response = "**CURRENT SERVER SETTINGS**\n\n"
-            for setting in guild_settings[server_id].keys():
-                response = response + "**" + setting + ":** " + str(guild_settings[message.guild.id][setting]) +  "\n"
+            for setting in list(guild_settings[server_id].keys()):
+                if guild_settings[message.guild.id][setting] == 0:
+                    setting_value = "Not set or 0"
+                else:
+                    setting_value = str(guild_settings[message.guild.id][setting])
+                response = response + "**" + setting + ":** " + setting_value +  "\n"
             await reply_message(message, response)
             
         elif command == 'newsetup':
@@ -5263,10 +5449,10 @@ async def on_message(message):
             dm_tracker[message.author.id]["fieldlist"] = ["ServerId","GuildBankBalance","StartingHealth","StartingMana","StartingStamina","StartingAttack","StartingDefense","StartingMagicAttack","StartingAgility","StartingIntellect","StartingCharisma","HealthLevelRatio","ManaLevelRatio","StaminaLevelRatio","XPLevelRatio","HealthAutoHeal","ManaAutoHeal","StaminaAutoHeal"]
             dm_tracker[message.author.id]["currentfield"] = 1
             dm_tracker[message.author.id]["fielddict"]= [str(message.guild.id),"1000000","200","100","100","10","5","10","10","10","10","200","100","100","20","0.2","0.1","0.1"]
-            dm_tracker[message.author.id]["currentcommand"] = 'newsetup'
+            dm_tracker[message.author.id]["currentcommand"] = 'editsetup'
             dm_tracker[message.author.id]["server_id"] = message.guild.id
             dm_tracker[message.author.id]["commandchannel"] = message.channel
-            dm_tracker[message.author.id]["parameters"] = parsed_string 
+            dm_tracker[message.author.id]["parameters"] = message.guild.id
 
             await reply_message(message, "Please check your DMs for instructions on how to edit server setup, <@" + str(message.author.id) + ">.")
             
@@ -5281,10 +5467,10 @@ async def on_message(message):
             dm_tracker[message.author.id]["fieldlist"] = ["ServerId","GuildBankBalance","StartingHealth","StartingMana","StartingStamina","StartingAttack","StartingDefense","StartingMagicAttack","StartingAgility","StartingIntellect","StartingCharisma","HealthLevelRatio","ManaLevelRatio","StaminaLevelRatio","XPLevelRatio","HealthAutoHeal","ManaAutoHeal","StaminaAutoHeal"]
             dm_tracker[message.author.id]["currentfield"] = 1
             dm_tracker[message.author.id]["fielddict"]= []
-            dm_tracker[message.author.id]["currentcommand"] = 'newsetup'
+            dm_tracker[message.author.id]["currentcommand"] = 'editsetup'
             dm_tracker[message.author.id]["server_id"] = message.guild.id
             dm_tracker[message.author.id]["commandchannel"] = message.channel
-            dm_tracker[message.author.id]["parameters"] = parsed_string 
+            dm_tracker[message.author.id]["parameters"] = message.guild.id 
 
             records = await select_sql("""SELECT ServerId,StartingHealth,StartingMana,StartingStamina,StartingAttack,StartingDefense,StartingMagicAttack,StartingAgility,StartingIntellect,StartingCharisma,HealthLevelRatio,ManaLevelRatio,StaminaLevelRatio,XPLevelRatio,HealthAutoHeal,ManaAutoHeal,StaminaAutoHeal FROM GuildSettings WHERE ServerId=%s;""", (str(message.guild.id),))
             counter = 0
@@ -5467,4 +5653,4 @@ async def on_message(message):
             await reply_message(message,"`Click here to invite RP Mastermind:` https://discordapp.com/api/oauth2/authorize?client_id=691353869841596446&permissions=805829696&scope=bot")
         else:
             pass        
-client.run('')
+client.run('REDACTED')
