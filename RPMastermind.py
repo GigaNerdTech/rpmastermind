@@ -31,7 +31,7 @@ mass_spar_confirm = {}
 alt_aliases = { }
 dm_tracker = { }
 fallen_chars = { } 
-narrator_url = ""
+narrator_url = "https://cdn.discordapp.com/attachments/701796158691082270/703247309613301790/header-brilliant-game-of-thrones-and-princess-bride-mashup-video.jpg"
 npc_aliases = { }
 
 async def log_message(log_entry):
@@ -91,7 +91,11 @@ async def direct_message(message, response):
     channel = await message.author.create_dm()
     await log_message("replied to user " + message.author.name + " in DM with " + response)
     try:
-        await channel.send(response)
+        message_chunks = [response[i:i+1900] for i in range(0, len(response), 1900)]
+        for chunk in message_chunks:
+            await channel.send(">>> " + chunk)
+            time.sleep(1)
+        
     except discord.errors.Forbidden:
         await dm_tracker[message.author.id]["commandchannel"].send(">>> You have DMs off. Please reply with =answer <reply> in the server channel.\n" + response)
         
@@ -222,7 +226,7 @@ async def make_menu(message, table1, table2, id_field1, id_field2, name_field,id
     global dm_tracker
     records = await select_sql("""SELECT """ + id_field1 + """ FROM """ + table1 + """ WHERE ServerId=%s AND """ + id_field2 + """=%s;""",  (str(dm_tracker[message.author.id]["server_id"]), id))
     if not records:
-        return "Menu error!"
+        return "No records found!"
     response = " "
     for row in records:
         item_record = await select_sql("SELECT " + name_field + " FROM " + table2 + " WHERE Id=%s AND ServerId=%s;", (str(row[0]),str(dm_tracker[message.author.id]["server_id"])))
@@ -234,7 +238,7 @@ async def make_simple_menu(message, table1, name_field):
     global dm_tracker
     records = await select_sql("""SELECT Id,""" + name_field + """ FROM """ + table1 + """ WHERE ServerId=%s;""",  (str(dm_tracker[message.author.id]["server_id"]),))
     if not records:
-        return "Menu error!"
+        return "No records found!"
     response = " "
     for row in records:
         response = response + "**" + str(row[0]) + "** - " + row[1] + "\n"
@@ -244,7 +248,7 @@ async def make_less_simple_menu(message, table1, name_field, id_field, id):
     global dm_tracker
     records = await select_sql("""SELECT Id,""" + name_field + """ FROM """ + table1 + """ WHERE ServerId=%s AND """ + id_field + """=%s;""",  (str(dm_tracker[message.author.id]["server_id"]),id))
     if not records:
-        return "Menu error!"
+        return "No records found!"
     response = " "
     for row in records:
         response = response + "**" + str(row[0]) + "** - " + row[1] + "\n"
@@ -387,6 +391,8 @@ async def on_guild_join(guild):
     alt_aliases[guild.id] = { }
     npc_aliases[guild.id] = { }
     fallen_chars[guild.id] = { }
+    result = await commit_sql("""INSERT INTO GuildSettings (ServerId) VALUES (%s);""",(str(guild.id),))
+    
     encounter_turn[guild.id] = 0
     for user in guild.members:
         npc_aliases[guild.id][user.id] = { }
@@ -400,6 +406,8 @@ async def on_guild_join(guild):
 @client.event
 async def on_guild_remove(guild):
     await log_message("Left guild " + guild.name)
+    result = await commit_sql("""DELETE FROM GuildSettings WHERE ServerId=%s;""",(str(guild.id),))
+    
     
 @client.event
 async def on_message(message):
@@ -458,6 +466,9 @@ async def on_message(message):
             
 
         elif current_command.startswith('edit') and current_field < len(field_list):
+            if current_field == 0 and message.content.strip() != dm_tracker[message.author.id]["fielddict"][0]:
+                dm_tracker[message.author.id]["parameters"] = dm_tracker[message.author.id]["fielddict"][0]
+                
             dm_tracker[message.author.id]["fielddict"][current_field] = message.content.strip()
             dm_tracker[message.author.id]["currentfield"] = current_field + 1
             if current_field < len(field_list) - 1:
@@ -2388,6 +2399,7 @@ async def on_message(message):
                     field_dict[len(field_dict) -1] = message.attachments[0].url               
                 result = await insert_into(message, "Spells")
                 if result:
+                    await direct_message(message, "Spell " + field_dict[0] + " successfully created.")
                     await dm_tracker[message.author.id]["commandchannel"].send(">>> Spell " + field_dict[0] + " successfully created.")
                 else:
                     await direct_message(message, "Database error!")            
@@ -2405,8 +2417,8 @@ async def on_message(message):
                     field_dict[len(field_dict) -1] = message.attachments[0].url                
                 result = await insert_into(message, "Armaments")
                 if result:
-                    await direct_message(message, "equip " + field_dict[0] + " created successfully.")
-                    await dm_tracker[message.author.id]["commandchannel"].send(">>> Item " + field_dict[0] + " successfully created.")
+                    await direct_message(message, "Armament " + field_dict[0] + " created successfully.")
+                    await dm_tracker[message.author.id]["commandchannel"].send(">>> Armament " + field_dict[0] + " successfully created.")
                 else:
                     await direct_message(message, "Database error!")                    
             elif current_command == 'newitem':
@@ -2471,7 +2483,7 @@ async def on_message(message):
             elif current_command == 'editnpc':
                 if message.attachments:
                     field_dict[len(field_dict) -1] = message.attachments[0].url
-                field_dict.append(str(dm_tracker[message.author.id]["parameters"]))
+
           
                 result = await update_table(message, "NonPlayerCharacters")
                 if result:
@@ -2537,7 +2549,7 @@ async def on_message(message):
                     field_dict[len(field_dict) -1] = message.attachments[0].url
                 result = await update_table(message, "Armaments")
                 if result:
-                    await direct_message(message, "Armamentedited successfully.")
+                    await direct_message(message, "Armament edited successfully.")
                     await dm_tracker[message.author.id]["commandchannel"].send(">>> Item edited successfully.")
                 else:
                     await direct_message(message, "Database error!")
@@ -2671,24 +2683,35 @@ async def on_message(message):
         
         
         if command == 'setadminrole':
-            if message.author != message.guild.owner:
-                await reply_message(message, "Only the server owner can set the admin role!")
+            if not message.author.guild_permissions.manage_guild:
+                await reply_message(message, "You must have manage server permissions to set the admin role!")
                 return
             if len(message.role_mentions) > 1:
                 await reply_message(message, "Only one role can be defined as the admin role!")
                 return
             role_id = message.role_mentions[0].id
             guild_settings[message.guild.id]["AdminRole"] = role_id
-            result = await commit_sql("""INSERT INTO GuildSettings (ServerId,AdminRole) Values (%s,%s);""",  (str(message.guild.id), str(role_id)))
+            records = await select_sql("""SELECT AdminRole FROM GuildSettings Where ServerId=%s;""",(str(message.guild.id),))
+            if not records:
+            
+                result = await commit_sql("""INSERT INTO GuildSettings (ServerId,AdminRole) Values (%s,%s);""",  (str(message.guild.id), str(role_id)))
+                if result:
+                    await reply_message(message, "Admin role successfully set!")
+                else:
+                    await reply_message(message, "Database error!")
+                return
+            for row in records:
+                admin_role = row[0]
+            result = await commit_sql("""UPDATE GuildSettings SET AdminRole=%s WHERE ServerId=%s;""",  (str(role_id), str(message.guild.id)))
             if result:
                 await reply_message(message, "Admin role successfully set!")
             else:
-                await reply_message(message, "Database error!")
+                await reply_message(message, "Database error!")            
         if command == 'help' or command == 'info':
             fields = " "
             if parsed_string == '=help' or parsed_string == '=info':
             
-                response = "`Welcome to RP Mastermind, the Discord RP Bot Master!`\n\n\n\n*Using Help:*\n\n\n\nType =info or =help followed by one of these categories:\n\n\n\n`general`: Not commands, but information on how the bot works.\n\n`setup`: Commands for getting the bot running.\n\n`characters`: Commands for managing characters.\n\n`alts`: Commands for managing Alts.\n\n`monsters` Commands for managing monsters.\n\n`items`: Commands for managing equipment.\n\n`encounters`: Commands for managing encounters.\n\n`melee` Commands for managing melee attacks.\n\n`spells` Commands for managing spells.\n\n`sparring`: Commands for managing sparring.\n\n`inventory`: Commands for managing inventory.\n\n`economy`: Commands for buying, selling and the guild bank.\n\n`vendors`: Commands for creating, editing and deleting vendors and adding items to them.\n\n`buffs`: Commands for adding, editing, deleting, and giving and taking away buffs.\n\n`armaments`: Commands for managing armaments\n\n`armories`: Commands for managing armories.\n\n`fun`: Commands for old time RP fun.\n\nMore advanced documentation can be found on the wiki: https://github.com/themidnight12am/rpmastermind/wiki\n\n"
+                response = "`Welcome to RP Mastermind, the Discord RP Bot Master!`\n\n\n\n*Using Help:*\n\n\n\nType =info or =help followed by one of these categories:\n\n\n\n`general`: Not commands, but information on how the bot works.\n\n`setup`: Commands for getting the bot running.\n\n`characters`: Commands for managing characters.\n\n`alts`: Commands for managing Alts.\n\n`npcs`: Commands for managing NPCs.\n\n`monsters` Commands for managing monsters.\n\n`items`: Commands for managing equipment.\n\n`encounters`: Commands for managing encounters.\n\n`melee` Commands for managing melee attacks.\n\n`spells` Commands for managing spells.\n\n`sparring`: Commands for managing sparring.\n\n`inventory`: Commands for managing inventory.\n\n`economy`: Commands for buying, selling and the guild bank.\n\n`vendors`: Commands for creating, editing and deleting vendors and adding items to them.\n\n`buffs`: Commands for adding, editing, deleting, and giving and taking away buffs.\n\n`armaments`: Commands for managing armaments\n\n`armories`: Commands for managing armories.\n\n`fun`: Commands for old time RP fun.\n\nMore advanced documentation can be found on the wiki: https://github.com/themidnight12am/rpmastermind/wiki\n\n"
             elif parsed_string == 'setup':
                 response = "**SETUP COMMANDS**\n\n\n\n`=setadminrole @Role`: *Owner* Set the admin role. This must be done before any other setup. This can only be done by a server owner. See general for role descriptions.\n\n`=newsetup` *Admin* Set up the initial server parameters. See the fields below for descriptions.\n\n`=editsetup` Modify the existing server setup parameters.\n\n`=setplayerrole @Role` *Admin* Set the player role.\n\n`=setgmrole @Role` *Admin* Set the Game Moderator role.\n\n`=setaltrole @Role` *Admin* Set the Alt manager role.\n\n`=listroles` *None* List the server roles.\n\n`=addadmin @user1 @user2` Add users to the admin role. Only the server owner can do this.\n\n`=addaltuser @user1 @user2` Add users to the NPC role.\n\n`=addplayer @user1 @user2` Add users to the player role.\n\n`=addgm @user1 @user2` Add users to the GM role.\n\n`=deleteadmin @user1 @user2` Delete users from the admin role. Only the server owner can do this.\n\n`=deletealt @user1 @user2` Delete users from the NPC role.\n\n`=deleteplayer @user1 @user2` Delete users from the player role.\n\n`=deletegm @user1 @user2` Delete users from the GM role.\n\n`=resetserver` Wipe all data from the bot for this server. Only the server owner may perform this action.\n\n`=invite` Get an invite link for the bot.\n\n"
 #                fields = "**SERVER SETTINGS FIELDS**\n\n\n\n`GuildBankBalance:` The total currency in the guild bank. Used for determining how much can be sold back to the guild or how much currency can be given by GMs.\n\n`StartingHealth:` The amount of health new characters start with.\n\n`StartingMana:` The amount of stamina new characters start with.\n\n`StartingAttack:` The amount of attack power new characters start with for melee.\n\n`StartingDefense:` The amount of defense against total damage a character starts with.\n\n`StartingMagicAttack:` The amount of spell power a new character starts with.\n\n`StartingAgility:` The amount of agility a new character starts with.\n\n`StartingIntellect:` The amount of intellect a new character starts with (unused).\n\n  `StartingCharisma:` The amount of charisma a new character starts with (unused).\n\n`HealthLevelRatio:` How many times the level a character's health is set to.\n\n`ManaLevelRatio:` How many times the level a character's mana is set to.\n\n`StaminaLevelRatio:` How many times the level a character's stamina is set to.\n\n`XPLevelRatio:` How many times a level XP must total to before a new level is granted.\n\n`HealthAutoHeal:` How much health is restored per turn during spars and encounters for characters as a multiplier of health. Set to zero for no restores, or less than 1 for partial autoheal (such as 0.1 for 10% per turn).\n\n`ManaAutoHeal:` How much mana restores per turn.\n\n`StaminaAutoHeal:` How much stamina restores per turn.\n\n"
@@ -2699,6 +2722,8 @@ async def on_message(message):
                 fields = "For character fields, see: https://github.com/themidnight12am/rpmastermind/wiki#character-profile-fields\n\nFor character status fields, see: https://github.com/themidnight12am/rpmastermind/wiki#character-statistic-fields\n\nFor character additional info fields, see: https://github.com/themidnight12am/rpmastermind/wiki#character-additional-information-fields\n\n"
             elif parsed_string == 'alts':
                 response = "**Alt COMMANDS**\n\n\n\n`=alttemplate` *None* Get the template for Alts.\n\n`=newpc` *Alt* Create a new Alt.\n\n`=postalt` *Player* Post as an Alt if you are in the allowed user list.\n\n`=editalt` *Alt* Edit an Alt.\n\n`=deletealt` *Alt* Delete an Alt.\n\n`=listalts`: *None* List all server Alts.\n\n"
+            elif parsed_string == 'npcs':
+                response = "**NPC COMMANDS**\n\n\n\n`=npctemplate` *None* Get the template for NPCs.\n\n`=newpc` *NPC* Create a new NPC.\n\n`=postnpc` *Player* Post as an NPC if you are in the allowed user list.\n\n`=editnpc` *NPC* Edit an NPC.\n\n`=deletenpc` *NPC* Delete an NPC.\n\n`=listnpcs`: *None* List all server NPCs.\n\n"                
             elif parsed_string == 'monsters':
                 response = "**MONSTER COMMANDS**\n\n\n\n`=newmonster` *Game Moderator* Add a new monster to the game.\n\n`=editmonster monster name` *Game Moderator* Edit an existing monster. The bot will DM you for the fields.\n\n`=deletemonster monster name` *Game Moderator* Delete a monster from the game.\n\n"
                 fields = "For monster fields, see: https://github.com/themidnight12am/rpmastermind/wiki#monster-fields\n\n"
@@ -2733,7 +2758,7 @@ async def on_message(message):
                 fields = "For vendor fields, see: https://github.com/themidnight12am/rpmastermind/wiki#vendor-fields\n\n "
  #               fields = "**VENDOR FIELDS**\n\n\n\n`VendorName:` The name of the vendor as it appears in buying items.\n\n`ItemList:` A comma delimited list of item IDs available for purchase.\n\n"
             elif parsed_string == 'fun':                
-                response = "**FUN FUN FUN COMMANDS**\n\n\n\n`=lurk` *None* Post a random lurk command.\n\n`=ooc` Post as the bot with OOC brackets.\n\n`=randomooc @user` Do something random to another user.\n\n`=roll` x`d`y *None* Roll x number of y-sided dice.\n\n"
+                response = "**FUN AND UTILITY COMMANDS**\n\n\n\n`=lurk` *None* Post a random lurk command.\n\n`=ooc` Post as the bot with OOC brackets.\n\n`=randomooc @user` Do something random to another user.\n\n`=roll` x`d`y *None* Roll x number of y-sided dice.\n\n`=me <action>` Immediately post as yourself OOC with brackets.\n\n`=newscene` Post as the narrator to open a new scene.\n\n`=endscene` Post as the narrator to end a scene.\n\n`=pause` Pause an ongoing scene as the narrator.\n\n`=unpause` Resume a scene as the narrator.\n\n`=postnarr <post>` Generate <post> as the narrator.\n\n"
             elif parsed_string == 'general':
                 response = "**GENERAL INFO**\n\n\n\nThis bot supports character profiles, leveling/experience, sparring, random encounters, monsters, equipment/inventory/economy, and spells/melee attacks.\n\n\n\nSome commands only require the name of the character or spell, like `=editmonster Evil Dead`. Other commands will initiate a DM that has menus that you can reply to for setting up or modifying game parameters. If the user has DMs disabled, the bot will reply in the same channel as the user's command.\n\n\n\n**ROLES**\n\n\n\nThere are four roles required to use the bot.\n\n`Admin:` The admin can run all commands of the bot, such as adding and deleting spells or items. The server owner must set the admin role.\n\n`Game Moderator:` The game moderator is able to start random encounters, add or delete monsters, give money, and give items.\n\n`Alt Manager:` The Alt manager is able to create, edit and delete Alts.\n\n`Player:` A player is able to add, edit, and delete their character profile, and play as their character, and post as Alts if allowed, and buy and sell items, and trade with other players. An admin role user must approve new characters.\n\n\n\n**LEVELING**\n\n\n\nLeveling is granted by gaining experience. Experience is gained by random encounters, sparring, or granted by a game moderator. A new level is achieved when experience totals twenty times the current level (default).\n\nFor more information, see the wiki: https://github.com/themidnight12am/rpmastermind/wiki#general-information\n\n"
             elif parsed_string == 'buffs':
@@ -2912,16 +2937,7 @@ async def on_message(message):
                 await reply_message(message, "Database error with armory table!")
                 return                    
             await reply_message(message, "Databases initialized!")
-        elif command == 'deleteall':
-            if not await admin_check(message.author.id):
-                await reply_message(message, "This command is admin only!")
-                return
-            drop_all_tables = """DROP TABLE IF EXISTS CharacterProfiles; DROP TABLE IF EXISTS Inventory; DROP TABLE IF EXISTS Equipment; DROP TABLE IF EXISTS Alts; DROP TABLE IF EXISTS Spells; DROP TABLE IF EXISTS Melee; DROP TABLE IF EXISTS MagicSkills; DROP TABLE IF EXISTS MeleeSkills; DROP TABLE IF EXISTS Monsters; DROP TABLE IF Exists CustomProfiles; DROP TABLE IF Exists Vendors; DROP TABLE IF EXISTS Buffs; DROP TABLE IF EXISTS BuffSkills;"""
-            result = await execute_sql(drop_all_tables)
-            if result:
-                await reply_message(message, "All tables dropped.")
-            else:
-                await reply_message(message, "Database error!")
+
         elif command == 'listunapprovedchars':
             dm_tracker[message.author.id] = {}
             dm_tracker[message.author.id]["server_id"] = message.guild.id
@@ -2985,6 +3001,10 @@ async def on_message(message):
                 return
             del mass_spar_chars[message.guild.id][message.author.id]
             await reply_message(message, "<@" + str(message.author.id) + "> has left the spar!")
+            if len(mass_spar_chars[message.guild.id]) < 2:
+                await reply_message(message, "Everyone has left the spar! Since no one can claim victory, the spar group is disbanded!")
+                mass_spar_chars[message.guild.id] = { }
+                mass_spar_event[message.guild.id] = False
         elif command == 'listallchars':
             records = await select_sql("""SELECT CharacterName,Level,UserId FROM CharacterProfiles WHERE ServerId=%s;""", (str(message.guild.id),))
             if not records:
@@ -3077,7 +3097,7 @@ async def on_message(message):
                 await direct_message(message, "You have requested a new default character! Please type in the response the **first and last names of the character**, and then enter each field as a reply to the DMs. When you have filled out all fields, the character will be created!")
         elif command == 'newrandomchar':
             if not role_check(guild_settings[message.guild.id]["PlayerRole"], message.author):
-                await reply_message(message, "You must have the player role to create a new character.")
+                await reply_message(message, "You must have the player role to create a new random character.")
                 return
 
             male_first_name_list = ["Ferris", "Redmond", "Raphael", "Orion", "Caspian", "Aramis", "Lucian", "Storm", "Percival", "Gawain", "Perseus", "Cormac", "Leon", "Patrick", "Robert", "Morgan", "Brandon", "Sven", "Roland", "Ronan", "Edmund", "Adam", "Edric", "Martin", "Odin", "Bayard", "Laurent", "Faramond", "Finn", "Edward", "Tristan", "Emil", "Zephyr", "Soren", "Arthur", "Robin", "Marcel", "Roman", "Beowulf"", ""Seth", "Tristan", "Arthur", "Edmund", "Percival", "Ronan", "Thor", "Leon", "Roman", "Adam", "Ferris", "Zephyr", "Gawain", "Perseus", "Cormac", "Lydan", "Syrin", "Ptorik", "Joz", "Varog", "Gethrod", "Hezra", "Feron", "Ophni", "Colborn", "Fintis", "Gatlin", "Jinto", "Hagalbar", "Krinn", "Lenox", "Revvyn", "Hodus", "Dimian", "Paskel", "Kontas", "Weston", "Azamarr ", "Jather ", "Tekren ", "Jareth", "Adon", "Zaden", "Eune ", "Graff", "Tez", "Jessop", "Gunnar", "Pike", "Domnhar", "Baske", "Jerrick", "Mavrek", "Riordan", "Wulfe", "Straus", "Tyvrik ", "Henndar", "Favroe", "Whit", "Jaris", "Renham", "Kagran", "Lassrin ", "Vadim", "Arlo", "Quintis", "Vale", "Caelan", "Yorjan", "Khron", "Ishmael", "Jakrin", "Fangar", "Roux", "Baxar", "Hawke", "Gatlen", "Barak", "Nazim", "Kadric", "Paquin", " ", "", "Kent", "Moki", "Rankar", "Lothe", "Ryven", "Clawsen", "Pakker", "Embre", "Cassian", "Verssek", "Dagfinn", "Ebraheim", "Nesso", "Eldermar", "Rivik", "Rourke", "Barton", "Hemm", "Sarkin", "Blaiz ", "Talon", "Agro", "Zagaroth", "Turrek", "Esdel", " ", "", "Lustros", "Zenner", "Baashar ", "Dagrod ", "Gentar", "Feston"]
@@ -3227,13 +3247,33 @@ async def on_message(message):
                 for row in records:
                     response = "***CHARACTER PROFILE***\n\n**Mun:** <@" + str(row[9]) + ">\n**Name:** " + row[0] + "\n**Age:** " + str(row[1]) + "\n**Race:** "+ row[2] + "\n**Gender:** " +row[3] + "\n**Height:** " + row[4] +  "\n**Weight:** " + row[5] +  "\n**Played by:** " + row[6] + "\n**Origin:** " + row[7] + "\n**Occupation:** " + row[8] + "\n\n**STATS**\n\n**Health:** " + str(row[13]) + "\n**Mana:** " + str(row[14]) + "\n**Attack:** " + str(row[10]) + "\n**Defense:** " + str(row[11]) + "\n**Magic Attack Power:** " + str(row[12]) + "\n**Level:** " + str(row[15]) + "\n**Experience:** " + str(row[16]) + "\n**Stamina:** " + str(row[17]) + "\n**Agility:** " + str(row[18]) + "\n**Intellect:** " + str(row[19]) + "\n**Charisma:** " + str(row[20]) + "\n**Currency:** " + str(row[22])+  "\n\n**ADDITIONAL INFORMATION**\n\n**Biography:** " + row[21] + "\n**Description:**" + row[23] + "\n**Personality:** " + row[24] + "\n**Powers:** " + row[25] + "\n**Strengths:** " + row[26] + "\n**Weaknesses:** " + row[27] + "\n**Skills:** " + row[28] + "\n\n**PICTURE**\n\n" + row[29] + "\n"
                 await reply_message(message, response)
+
+        elif command == 'getunapprovedprofile':
+            if not parsed_string:
+                await reply_message(message, "No character name specified!")
+                return
+                
+            char_name = parsed_string
+            
+            get_character_profile = """SELECT CharacterName,IFNULL(Age,' '),IFNULL(Race,' '), IFNULL(Gender,' '), IFNULL(Height,' '), IFNULL(Weight,' '), IFNULL(PlayedBy,' '), IFNULL(Origin,' '), IFNULL(Occupation,' '), UserId,Attack,Defense,MagicAttack,Health,Mana,Level,Experience,Stamina,Agility,Intellect,Charisma, IFNULL(Biography,' '), IFNULL(Currency,' '), IFNULL(Description,' '), IFNULL(Personality,' '), IFNULL(Powers,' '), IFNULL(Strengths,' '), IFNULL(Weaknesses,' '), IFNULL(Skills,' '), IFNULL(PictureLink,' ') FROM UnapprovedCharacterProfiles WHERE CharacterName=%s  AND ServerId=%s;"""
+            char_tuple = (char_name, str(message.guild.id))
+            
+            records = await select_sql(get_character_profile, char_tuple)
+            if len(records) < 1:
+                await reply_message(message, "No character found by that name!")
+                return
+            for row in records:
+                response = "***UNAPPROVED CHARACTER PROFILE***\n\n**Mun:** <@" + str(row[9]) + ">\n**Name:** " + row[0] + "\n**Age:** " + str(row[1]) + "\n**Race:** "+ row[2] + "\n**Gender:** " +row[3] + "\n**Height:** " + row[4] +  "\n**Weight:** " + row[5] +  "\n**Played by:** " + row[6] + "\n**Origin:** " + row[7] + "\n**Occupation:** " + row[8] + "\n\n**STATS**\n\n**Health:** " + str(row[13]) + "\n**Mana:** " + str(row[14]) + "\n**Attack:** " + str(row[10]) + "\n**Defense:** " + str(row[11]) + "\n**Magic Attack Power:** " + str(row[12]) + "\n**Level:** " + str(row[15]) + "\n**Experience:** " + str(row[16]) + "\n**Stamina:** " + str(row[17]) + "\n**Agility:** " + str(row[18]) + "\n**Intellect:** " + str(row[19]) + "\n**Charisma:** " + str(row[20]) + "\n**Currency:** " + str(row[22])+  "\n\n**ADDITIONAL INFORMATION**\n\n**Biography:** " + row[21] + "\n**Description:**" + row[23] + "\n**Personality:** " + row[24] + "\n**Powers:** " + row[25] + "\n**Strengths:** " + row[26] + "\n**Weaknesses:** " + row[27] + "\n**Skills:** " + row[28] + "\n\n**PICTURE**\n\n" + row[29] + "\n"
+            await reply_message(message, response)        
         elif command == 'editchar':
             user_id = message.author.id
             server_id = message.guild.id
             if not role_check(guild_settings[message.guild.id]["PlayerRole"], message.author):
                 await reply_message(message, "You must have the player role to edit a character.")
                 return
-                
+            if not parsed_string:
+                await reply_message(message, "No character name specified!")
+                return                
             char_name = parsed_string
             current_fields = await select_sql("""SELECT Age,Race,Gender,Height,Weight,Playedby,Origin,Occupation,PictureLink FROM CharacterProfiles WHERE ServerId=%s AND CharacterName=%s ;""", (str(message.guild.id), char_name))
             if not current_fields:
@@ -3283,8 +3323,7 @@ async def on_message(message):
                 response = response + row[0] + " Level: " + str(row[1]) + "\n"
             await reply_message(message, response)
         elif command == 'getcharskills':
-            m = re.search(r"(?P<name>.+) (?P<lastname>.+)", parsed_string)
-            if not m:
+            if not parsed_string:
                 await reply_message(message, "No character name specified!")
                 return
             char_name = parsed_string
@@ -3344,196 +3383,6 @@ async def on_message(message):
             
             await direct_message(message, "You have requested to edit the character statistics of **" + parsed_string + "**. Please type in the response the answer to each field to update, or *skip* to leave as is. When you have filled out all fields, the character will be updated!\nThe first field is **" + dm_tracker[message.author.id]["fieldlist"][0] + "** and its current value is **" + str(dm_tracker[message.author.id]["fielddict"][0]) + "**.")                
 
-            
-        elif command == 'setcharbio':
-            if not role_check(guild_settings[message.guild.id]["PlayerRole"], message.author):
-                await reply_message(message, "You must be member of the player role to add a biography!")
-                return
-
-            name_re = re.compile(r"Name: (?P<name>.+)")
-            bio_re = re.compile(r"Biography: (?P<bio>.+)", re.S | re.MULTILINE)
-            m = name_re.search(parsed_string)
-            if m:
-                char_name = m.group('name')
-
-            m = bio_re.search(parsed_string)
-            if m:
-                bio = m.group('bio')
-            records = await select_sql("""SELECT UserId FROM CharacterProfiles WHERE ServerId=%s AND CharacterName=%s ;""",(str(message.guild.id), char_name))
-            for row in records:
-                user_id = row[0]
-            if int(user_id) != message.author.id or not role_check(guild_settings[message.guild.id]["AdminRole"], message.author):
-                await reply_message(message, "This is not your character! Please only add a biography to your character!")
-                return
-            update_bio = """UPDATE CharacterProfiles SET Biography=%s WHERE ServerId=%s AND CharacterName=%s ;"""
-            update_bio_tuple = (bio, str(message.guild.id), char_name)
-            result = await commit_sql(update_bio, update_bio_tuple)
-            if result:
-                await reply_message(message, "Biography of character " + char_name + " updated successfully.")
-            else:
-                await reply_message(message, "Database error!")
-        elif command == 'setcharstrengths':
-            if not role_check(guild_settings[message.guild.id]["PlayerRole"], message.author):
-                await reply_message(message, "You must be member of the player role to add a biography!")
-                return        
-            name_re = re.compile(r"Name: (?P<name>.+)")
-            strengths_re = re.compile(r"Strengths: (?P<strengths>.+)", re.S | re.MULTILINE)
-            m = name_re.search(parsed_string)
-            if m:
-                char_name = m.group('name')
-            m = strengths_re.search(parsed_string)            
-            if m:
-                strengths = m.group('strengths')
-            records = await select_sql("""SELECT UserId FROM CharacterProfiles WHERE ServerId=%s AND CharacterName=%s ;""",(str(message.guild.id), char_name))
-            for row in records:
-                user_id = row[0]
-            if int(user_id) != message.author.id or not role_check(guild_settings[message.guild.id]["AdminRole"], message.author):
-                await reply_message(message, "This is not your character! Please only add strengths to your character!")
-                return                
-            update_strengths = """UPDATE CharacterProfiles SET Strengths=%s WHERE ServerId=%s AND CharacterName=%s ;"""
-            update_strengths_tuple = (strengths, str(message.guild.id), char_name)
-            result = await commit_sql(update_strengths, update_strengths_tuple)
-            if result:
-                await reply_message(message, "Strengths of character " + char_name + " updated successfully.")
-            else:
-                await reply_message(message, "Database error!")
-        elif command == 'setcharweaknesses':
-            if not role_check(guild_settings[message.guild.id]["PlayerRole"], message.author):
-                await reply_message(message, "You must be member of the player role to add a biography!")
-                return        
-            name_re = re.compile(r"Name: (?P<name>.+)")
-            weaknesses_re = re.compile(r"Weaknesses: (?P<weaknesses>.+)", re.S | re.MULTILINE)
-            m = name_re.search(parsed_string)
-            if m:
-                char_name = m.group('name')
-                
-            m = weaknesses_re.search(parsed_string)
-            if m:
-                weaknesses = m.group('weaknesses')
-            records = await select_sql("""SELECT UserId FROM CharacterProfiles WHERE ServerId=%s AND CharacterName=%s ;""",(str(message.guild.id), char_name))
-            for row in records:
-                user_id = row[0]
-            if int(user_id) != message.author.id or not role_check(guild_settings[message.guild.id]["AdminRole"], message.author):
-                await reply_message(message, "This is not your character! Please only add weaknesses to your character!")
-                return                 
-            update_weaknesses = """UPDATE CharacterProfiles SET Weaknesses=%s WHERE ServerId=%s AND CharacterName=%s ;"""
-            update_weaknesses_tuple = (weaknesses, str(message.guild.id), char_name)
-            result = await commit_sql(update_weaknesses, update_weaknesses_tuple)
-            if result:
-                await reply_message(message, "weaknesses of character " + char_name + " updated successfully.")
-            else:
-                await reply_message(message, "Database error!")
-        elif command == 'setcharpowers':
-            if not role_check(guild_settings[message.guild.id]["PlayerRole"], message.author):
-                await reply_message(message, "You must be member of the player role to add a biography!")
-                return        
-            name_re = re.compile(r"Name: (?P<name>.+)")
-            powers_re = re.compile(r"Powers: (?P<powers>.+)", re.S | re.MULTILINE)
-            m = name_re.search(parsed_string)
-            if m:
-                char_name = m.group('name')
-                
-            m = powers_re.search(parsed_string)
-            if m:
-                powers = m.group('powers')
-            records = await select_sql("""SELECT UserId FROM CharacterProfiles WHERE ServerId=%s AND CharacterName=%s ;""",(str(message.guild.id), char_name))
-            for row in records:
-                user_id = row[0]
-            if int(user_id) != message.author.id or not role_check(guild_settings[message.guild.id]["AdminRole"], message.author):
-                await reply_message(message, "This is not your character! Please only add powers to your character!")
-                return                 
-            update_powers = """UPDATE CharacterProfiles SET Powers=%s WHERE ServerId=%s AND CharacterName=%s ;"""
-            update_powers_tuple = (powers, str(message.guild.id), char_name)
-            result = await commit_sql(update_powers, update_powers_tuple)
-            if result:
-                await reply_message(message, "powers of character " + char_name + " updated successfully.")
-            else:
-                await reply_message(message, "Database error!")
-        elif command == 'setcharskills':
-            if not role_check(guild_settings[message.guild.id]["PlayerRole"], message.author):
-                await reply_message(message, "You must be member of the player role to add a biography!")
-                return        
-            name_re = re.compile(r"Name: (?P<name>.+)")
-            skills_re = re.compile(r"Skills: (?P<skills>.+)", re.S | re.MULTILINE)
-            m = name_re.search(parsed_string)
-            if m:
-                char_name = m.group('name')
-                
-            m = skills_re.search(parsed_string)
-            if m:
-                skills = m.group('skills')
-            records = await select_sql("""SELECT UserId FROM CharacterProfiles WHERE ServerId=%s AND CharacterName=%s ;""",(str(message.guild.id), char_name))
-            for row in records:
-                user_id = row[0]
-            if int(user_id) != message.author.id or not role_check(guild_settings[message.guild.id]["AdminRole"], message.author):
-                await reply_message(message, "This is not your character! Please only add skills to your character!")
-                return                 
-            update_skills = """UPDATE CharacterProfiles SET Skills=%s WHERE ServerId=%s AND CharacterName=%s ;"""
-            update_skills_tuple = (skills, str(message.guild.id), char_name)
-            result = await commit_sql(update_skills, update_skills_tuple)
-            if result:
-                await reply_message(message, "skills of character " + char_name + " updated successfully.")
-            else:
-                await reply_message(message, "Database error!")
-        elif command == 'setcharpersonality':
-            if not role_check(guild_settings[message.guild.id]["PlayerRole"], message.author):
-                await reply_message(message, "You must be member of the player role to add a biography!")
-                return        
-            name_re = re.compile(r"Name: (?P<name>.+)")
-            personality_re = re.compile(r"Personality: (?P<personality>.+)", re.S | re.MULTILINE)
-            m = name_re.search(parsed_string)
-            if m:
-                char_name = m.group('name')
-                
-            m = personality_re.search(parsed_string)
-            if m:
-                personality = m.group('personality')
-            records = await select_sql("""SELECT UserId FROM CharacterProfiles WHERE ServerId=%s AND CharacterName=%s ;""",(str(message.guild.id), char_name))
-            for row in records:
-                user_id = row[0]
-            if int(user_id) != message.author.id or not role_check(guild_settings[message.guild.id]["AdminRole"], message.author):
-                await reply_message(message, "This is not your character! Please only add personality to your character!")
-                return                 
-            update_personality = """UPDATE CharacterProfiles SET Personality=%s WHERE ServerId=%s AND CharacterName=%s ;"""
-            update_personality_tuple = (personality, str(message.guild.id), char_name)
-            result = await commit_sql(update_personality, update_personality_tuple)
-            if result:
-                await reply_message(message, "personality of character " + char_name + " updated successfully.")
-            else:
-                await reply_message(message, "Database error!")
-        elif command == 'setchardescription':
-            if not role_check(guild_settings[message.guild.id]["PlayerRole"], message.author):
-                await reply_message(message, "You must be member of the player role to add a biography!")
-                return        
-            name_re = re.compile(r"Name: (?P<name>.+)")
-            description_re = re.compile(r"Description: (?P<description>.+)", re.S | re.MULTILINE)
-            m = name_re.search(parsed_string)
-            if m:
-                char_name = m.group('name')
-                
-            else:
-                await reply_message(message, "No character name specified!")
-                return
-            m = description_re.search(parsed_string)
-            
-            if m:
-                description = m.group('description')
-            else:
-                await reply_message(message, "No description specified!")
-                return
-            records = await select_sql("""SELECT UserId FROM CharacterProfiles WHERE ServerId=%s AND CharacterName=%s ;""",(str(message.guild.id), char_name))
-            for row in records:
-                user_id = row[0]
-            if int(user_id) != message.author.id or not role_check(guild_settings[message.guild.id]["AdminRole"], message.author):
-                await reply_message(message, "This is not your character! Please only add strengths to your character!")
-                return                 
-            update_description = """UPDATE CharacterProfiles SET Description=%s WHERE ServerId=%s AND CharacterName=%s ;"""
-            update_description_tuple = (description, str(message.guild.id), char_name)
-            result = await commit_sql(update_description, update_description_tuple)
-            if result:
-                await reply_message(message, "description of character " + char_name + " updated successfully.")
-            else:
-                await reply_message(message, "Database error!")
         elif command == 'deletechar':
             if not role_check(guild_settings[message.guild.id]["PlayerRole"], message.author):
                 await reply_message(message, "You must be member of the player role to delete a character!")
@@ -3563,7 +3412,7 @@ async def on_message(message):
         
         elif command == 'setalt':
             if not role_check(guild_settings[message.guild.id]["NPCRole"], message.author):
-                await reply_message(message, "You must be a member of the NPC role to create Alts!")
+                await reply_message(message, "You must be a member of the NPC role to set alt aliases!")
                 return
             if not parsed_string:
                 await reply_message(message, "No Alt shortcut specified!")
@@ -3572,7 +3421,7 @@ async def on_message(message):
             await reply_message(message, "User <@" + str(message.author.id) + "> set alias to " + parsed_string + " in channel " + message.channel.name + ".")
         elif command == 'unsetalt':
             if not role_check(guild_settings[message.guild.id]["NPCRole"], message.author):
-                await reply_message(message, "You must be a member of the NPC role to create Alts!")
+                await reply_message(message, "You must be a member of the NPC role to remove an alt alias!")
                 return
             alt_aliases[message.guild.id][message.author.id][message.channel.id] = ""
             await reply_message(message, "User <@" + str(message.author.id) + "> cleared alias in channel " + message.channel.name + ".")            
@@ -3680,11 +3529,8 @@ async def on_message(message):
             if not role_check(guild_settings[message.guild.id]["NPCRole"], message.author):
                 await reply_message(message, "You must be a member of the NPC role to edit NonPlayerCharacters!")
                 return
-            users_allowed = message.mentions
-            if not users_allowed:
-                await reply_message(message, "No users allowed to use the NPC specified!")
-                return
-            records = await select_sql("""SELECT CharName,PictureLink,Shortcut FROM NonPlayerCharacters WHERE ServerId=%s AND CharName=%s;""",(str(message.guild.id),parsed_string))
+
+            records = await select_sql("""SELECT CharName,Shortcut,PictureLink FROM NonPlayerCharacters WHERE ServerId=%s AND CharName=%s;""",(str(message.guild.id),parsed_string))
             if not records:
                 await reply_message(message, "No NPC found with that name!")
                 return
@@ -3693,21 +3539,20 @@ async def on_message(message):
             if message.author.id not in dm_tracker.keys():
                 await initialize_dm(message.author.id)
             dm_tracker[message.author.id]["currentcommand"] = 'editnpc'
-            dm_tracker[message.author.id]["fieldlist"] = ["CharName","PictureLink","Shortcut"]                                                   
-            dm_tracker[message.author.id]["currentfield"] = 1
+            dm_tracker[message.author.id]["fieldlist"] = ["CharName","Shortcut","PictureLink"]                                                   
+            dm_tracker[message.author.id]["currentfield"] = 0
             dm_tracker[message.author.id]["fielddict"] = [] 
             dm_tracker[message.author.id]["server_id"] = message.guild.id
             dm_tracker[message.author.id]["commandchannel"] = message.channel
-            dm_tracker[message.author.id]["parameters"] = message.mentions
+            dm_tracker[message.author.id]["parameters"] = ""
             counter = 0
             for row in dm_tracker[message.author.id]["fieldlist"]:
                 dm_tracker[message.author.id]["fielddict"].append(fields[counter])
                 counter = counter + 1
-                if counter > len(dm_tracker[message.author.id]["fieldlist"]) - 2:
-                    break           
+        
             await reply_message(message, "Please check your DMs for instructions on how to edit a NPC, <@" + str(message.author.id) + ">.")
             
-            await direct_message(message, "You have requested to edit NPC! Please type in the response the ID of the character, and then enter each field as a reply to the DMs. When you have filled out all fields, the NPC will be updated!")        
+            await direct_message(message, "You have requested to edit the NPC **" + parsed_string + "**. Please type in the response the answer to each field to update, or *skip* to leave as is. When you have filled out all fields, the spell will be updated!\nThe first field is **" + dm_tracker[message.author.id]["fieldlist"][0] + "** and its current value is **" + dm_tracker[message.author.id]["fielddict"][0] + "**.")       
         elif command == 'postalt':
             if not role_check(guild_settings[message.guild.id]["PlayerRole"], message.author):
                 await reply_message(message, "You must be a member of the player role to post as Alts!")
@@ -3763,7 +3608,7 @@ async def on_message(message):
             if not users_allowed:
                 await reply_message(message, "No users allowed to use the Alt specified!")
                 return
-            records = await select_sql("""SELECT CharName,PictureLink,Shortcut FROM Alts WHERE ServerId=%s AND CharName=%s;""",(str(message.guild.id),parsed_string))
+            records = await select_sql("""SELECT CharName,Shortcut,PictureLink FROM Alts WHERE ServerId=%s AND CharName=%s;""",(str(message.guild.id),parsed_string))
             if not records:
                 await reply_message(message, "No Alt found with that name!")
                 return
@@ -3772,8 +3617,8 @@ async def on_message(message):
             if message.author.id not in dm_tracker.keys():
                 await initialize_dm(message.author.id)
             dm_tracker[message.author.id]["currentcommand"] = 'editalt'
-            dm_tracker[message.author.id]["fieldlist"] = ["CharName","PictureLink","Shortcut"]                                                   
-            dm_tracker[message.author.id]["currentfield"] = 1
+            dm_tracker[message.author.id]["fieldlist"] = ["CharName","Shortcut","PictureLink"]                                                     
+            dm_tracker[message.author.id]["currentfield"] = 0
             dm_tracker[message.author.id]["fielddict"] = [] 
             dm_tracker[message.author.id]["server_id"] = message.guild.id
             dm_tracker[message.author.id]["commandchannel"] = message.channel
@@ -3782,22 +3627,11 @@ async def on_message(message):
             for row in dm_tracker[message.author.id]["fieldlist"]:
                 dm_tracker[message.author.id]["fielddict"].append(fields[counter])
                 counter = counter + 1
-                if counter > len(dm_tracker[message.author.id]["fieldlist"]) - 2:
-                    break           
+      
             await reply_message(message, "Please check your DMs for instructions on how to edit a Alt, <@" + str(message.author.id) + ">.")
             
-            await direct_message(message, "You have requested to edit Alt! Please type in the response the ID of the character, and then enter each field as a reply to the DMs. When you have filled out all fields, the Alt will be updated!")
-                
+            await direct_message(message, "You have requested to edit the alt **" + parsed_string + "**. Please type in the response the answer to each field to update, or *skip* to leave as is. When you have filled out all fields, the spell will be updated!\nThe first field is **" + dm_tracker[message.author.id]["fieldlist"][0] + "** and its current value is **" + dm_tracker[message.author.id]["fielddict"][0] + "**.")
 
-        elif command == 'setupalt':
-            if not role_check(guild_settings[message.guild.id]["NPCRole"], message.author):
-                await reply_message(message, "You must be a member of the NPC role to create webhooks for Alts!")
-                return        
-            webhook[message.channel.id] = await message.channel.create_webhook(name='Chara-Tron')
-            if webhook[message.channel.id]:
-                await reply_message(message, "Webhook for this channel set up successfully!")
-            else:
-                await reply_message(message, "Problem creating webhook!")
         elif command == 'listalts':
             response = "***CURRENT Alt LIST***\n\n__Alt Name__ - __Allowed Users__ __Shortcut__\n"
             records = await select_sql("""SELECT CharName,UsersAllowed,Shortcut FROM Alts WHERE ServerId=%s;""", (str(message.guild.id),))
@@ -3810,7 +3644,7 @@ async def on_message(message):
                 response = response + row[0] + " - " + str(names) + " - " + row[2] + "\n"
             await reply_message(message, response)
         elif command == 'listnpcs':
-            response = "***CURRENT Alt LIST***\n\n__Alt Name__  __Shortcut__\n"
+            response = "***CURRENT NPC LIST***\n\n__NPC Name__  __Shortcut__\n"
             records = await select_sql("""SELECT CharName,Shortcut FROM NonPlayerCharacters WHERE ServerId=%s;""", (str(message.guild.id),))
             name_re = re.compile(r"Member id=.*?name='(.+?)'")
 
@@ -3930,6 +3764,9 @@ async def on_message(message):
             await direct_message(message, response)
             
         elif command == 'listvendor':
+            if not parsed_string:
+                await reply_message(message, "No vendor name specified!")
+                return            
             vendor_name = parsed_string
             records = await select_sql("""SELECT ItemList,PictureLink FROM Vendors WHERE VendorName=%s;""", (vendor_name,))
             if not records:
@@ -4002,6 +3839,9 @@ async def on_message(message):
             await direct_message(message, response)
             
         elif command == 'listarmory':
+            if not parsed_string:
+                await reply_message(message, "No armory name specified!")
+                return               
             armory_name = parsed_string
             records = await select_sql("""SELECT ArmamentList,PictureLink FROM Armory WHERE ArmoryName=%s;""", (armory_name,))
             if not records:
@@ -4123,7 +3963,10 @@ async def on_message(message):
         elif command == 'editmelee':
             if not role_check(guild_settings[message.guild.id]["AdminRole"], message.author):
                 await reply_message(message, "You must be a member of the admin role to edit melee attacks!")
-                return        
+                return   
+            if not parsed_string:
+                await reply_message(message, "No melee name specified!")
+                return                       
             user_id = message.author.id
             server_id = message.guild.id
 
@@ -4152,7 +3995,10 @@ async def on_message(message):
         elif command == 'editspell':
             if not role_check(guild_settings[message.guild.id]["AdminRole"], message.author):
                 await reply_message(message, "You must be a member of the admin role to edit spells!")
-                return        
+                return    
+            if not parsed_string:
+                await reply_message(message, "No spell name specified!")
+                return                       
             user_id = message.author.id
             server_id = message.guild.id
 
@@ -4318,6 +4164,9 @@ async def on_message(message):
             if not role_check(guild_settings[message.guild.id]["AdminRole"], message.author):
                 await reply_message(message, "You must be a member of the admin role to edit armaments!")
                 return
+            if not parsed_string:
+                await reply_message(message, "No armament name specified!")
+                return                       
             user_id = message.author.id
             server_id = message.guild.id
                 
@@ -4347,6 +4196,9 @@ async def on_message(message):
             if not role_check(guild_settings[message.guild.id]["AdminRole"], message.author):
                 await reply_message(message, "You must be a member of the admin role to edit equipment!")
                 return
+            if not parsed_string:
+                await reply_message(message, "No item name specified!")
+                return                       
             user_id = message.author.id
             server_id = message.guild.id
                 
@@ -4376,15 +4228,15 @@ async def on_message(message):
                 
         elif command == 'deletearmament':
             if not role_check(guild_settings[message.guild.id]["AdminRole"], message.author):
-                await reply_message(message, "You must be a member of the admin role to delete equipment!")
+                await reply_message(message, "You must be a member of the admin role to delete armaments!")
                 return        
             if not parsed_string:
-                await reply_message(message, "You didn't specify an equipment name!")
+                await reply_message(message, "You didn't specify an armament name!")
                 return
             records = await select_sql("""SELECT Id FROM Armaments WHERE ArmamentName=%s AND ServerId=%s;""", (parsed_string,str(message.guild.id)))
             
             if not records:
-                await reply_message(message, "No item found by that name!")
+                await reply_message(message, "No armament found by that name!")
                 return 
             for row in records:
                 item_id = row[0]
@@ -4471,14 +4323,7 @@ async def on_message(message):
             if not parsed_string:
                 await reply_message(message, "You didn't specify a character!")
                 return
-            name_re = re.compile(r"(?P<name>.+) (?P<lastname>.+)")
-            m = name_re.search(parsed_string)
-            if m:
-                char_name = m.group('name')
-                
-            else:
-                await reply_message(message, "No character specified!")
-                return
+
             records = await select_sql("""SELECT Id,UserId FROM CharacterProfiles WHERE ServerId=%s AND CharacterName=%s ;""",(str(message.guild.id), char_name))
             if not records:
                 await reply_message(message, "No character by that name found!")
@@ -4597,7 +4442,8 @@ async def on_message(message):
             menu = await make_less_simple_menu(message, "CharacterProfiles", "CharacterName", "UserId", str(message.author.id))
             response = response + menu
             await direct_message(message, "Please select a character to sell the item for by replying with the ID in bold.\n\n" + response)
-            await reply_message(message, "Please check your DMs for instructions on how to sell an item, <@" + str(message.author.id) + ">.")  
+            await reply_message(message, "Please check your DMs for instructions on how to sell an item, <@" + str(message.author.id) + ">.")
+            
         elif command == 'sellarms':
             if not role_check(guild_settings[message.guild.id]["PlayerRole"], message.author):
                 await reply_message(message, "You must be a member of the player role to sell armaments!")
@@ -4667,6 +4513,9 @@ async def on_message(message):
             if not role_check(guild_settings[message.guild.id]["AdminRole"], message.author):
                 await reply_message(message, "You must be a member of the admin role to edit buffs!")
                 return
+            if not parsed_string:
+                await reply_message(message, "No buff name specified!")
+                return                       
             current_fields = await select_sql("""SELECT BuffName,ManaCost,MinimumLevel,StatMod,Modifier,Description,PictureLink FROM Buffs WHERE ServerId=%s AND BuffName=%s;""", (str(message.guild.id), parsed_string))
             if not current_fields:
                 await reply_message(message, "No buff found by that name!")
@@ -4859,9 +4708,6 @@ async def on_message(message):
 
             menu = "Current Armaments Equipped\n\nHead: **" +head_id + "** - " + head_name + "\nLeftHand: **" + left_id + "** - " + left_name + "\nRightHand: **" + right_id +  "** - " + right_name + "\nChest: **" + chest_id + "** - " + chest_name + "\nFeet: **" + feet_id + "** - " + feet_name +"\n"
             await reply_message(message, menu)
-        elif command == 'getalttemplate':
-            response = "**NEW Alt TEMPLATE**\n\n=newalt Name: \nShortcut: \nPicture Link: \n"
-            await reply_message(message, response)
 
         elif command == 'lurk':
             if message.author.nick:
@@ -5009,7 +4855,9 @@ async def on_message(message):
             if not role_check(guild_settings[message.guild.id]["PlayerRole"], message.author):
                 await reply_message(message, "You must be a member of the player role to edit edit character info!")
                 return        
-
+            if not parsed_string:
+                await reply_message(message, "No character name specified!")
+                return       
             current_fields = await select_sql("""SELECT IFNULL(Biography,'None'),IFNULL(Skills,'None'),IFNULL(Strengths,'None'),IFNULL(Weaknesses,'None'),IFNULL(Powers,'None'),IFNULL(Personality,'None'),IFNULL(Description,'None') FROM CharacterProfiles WHERE ServerId=%s AND CharacterName=%s;""", (str(message.guild.id), parsed_string))
             if not current_fields:
                 await reply_message(message, "No character found by that name!")
@@ -5042,7 +4890,9 @@ async def on_message(message):
             if not role_check(guild_settings[message.guild.id]["GameModeratorRole"], message.author):
                 await reply_message(message, "You must be a member of the GM role to edit monsters!")
                 return        
-
+            if not parsed_string:
+                await reply_message(message, "No monster name specified!")
+                return       
             current_fields = await select_sql("""SELECT Description,Health,Element,Level,Attack,Defense,MagicAttack,IFNULL(MaxCurrencyDrop,0),IFNULL(PictureLink,'None') FROM Monsters WHERE ServerId=%s AND MonsterName=%s;""", (str(message.guild.id), parsed_string))
             if not current_fields:
                 await reply_message(message, "No monster found by that name!")
@@ -5106,7 +4956,7 @@ async def on_message(message):
             await reply_message(message, response)
         elif command == 'listarmament':
             if not parsed_string:
-                await reply_message(message, "No item name specified!")
+                await reply_message(message, "No armament name specified!")
                 return
             records = await select_sql("""SELECT Description, ArmamentCost, MinimumLevel, StatMod, Modifier, Slot, DamageMin, DamageMax, Defense, PictureLink FROM Armaments WHERE ServerId=%s AND ArmamentName=%s;""", (str(message.guild.id),parsed_string))
             if not records:
@@ -5440,6 +5290,7 @@ async def on_message(message):
                 return        
             server_encounters[message.guild.id] = False
             await reply_message(message, "Encounter aborted. No health will be deducted and no XP will be gained.")
+            
         elif command == 'setencounterchar':
             if not role_check(guild_settings[message.guild.id]["PlayerRole"], message.author):
                 await reply_message(message, "You must be a member of the player role to set an encounter character!")
@@ -5458,6 +5309,8 @@ async def on_message(message):
             menu = await make_less_simple_menu(message, "CharacterProfiles", "CharacterName", "UserId", str(message.author.id))
             await direct_message(message, "Please reply to this message with the ID in bold of the character you wish to join the party with.\n\n**CHARACTER LIST**\n\n" + menu)
             await reply_message(message, "Please check your DMs for instructions on how to choose a character, <@" + str(message.author.id) + "> .")
+            
+            
         elif command == 'monsterattack':
             if not role_check(guild_settings[message.guild.id]["GameModeratorRole"], message.author):
                 await reply_message(message, "You must be a member of the GM role to attack with the monster!")
@@ -5602,9 +5455,6 @@ async def on_message(message):
             response = "Please select an armament from the list of your character's equipment below by replying with the ID in bold:\n\n" + menu
             await direct_message(message, response)
             await reply_message(message, "<@" + str(message.author.id) + "> , please see your DMs for instructions on how to attack.")
-        elif command == 'getmonstertemplate':
-            response = "***NEW MONSTER TEMPLATE***\n\n=newmonster Monster Name: \nDescription: \nHealth: \nLevel: \nAttack: \nDefense: \nElement: \nMagic Power: \nPicture Link: \n"
-            await reply_message(message, response)
 
         elif command == 'addstatpoints':
             if not role_check(guild_settings[message.guild.id]["PlayerRole"], message.author):
@@ -5658,12 +5508,13 @@ async def on_message(message):
                 await reply_message(message, "Player role successfully set!")
             else:
                 await reply_message(message, "Database error!") 
-        elif command == 'setaltrole':
+                
+        elif command == 'setnpcrole':
             if not role_check(guild_settings[message.guild.id]["AdminRole"], message.author):
                 await reply_message(message, "You must be a member of the admin role to set other roles!")
                 return        
             if len(message.role_mentions) > 1:
-                await reply_message(message, "Only one role can be defined as the GM role!")
+                await reply_message(message, "Only one role can be defined as the NPC role!")
                 return
             role_id = message.role_mentions[0].id
             guild_settings[message.guild.id]["NPCRole"] = role_id
@@ -5672,6 +5523,7 @@ async def on_message(message):
                 await reply_message(message, "NPC role successfully set!")
             else:
                 await reply_message(message, "Database error!")
+                
         elif command == 'listroles':
             records = await select_sql("""SELECT IFNULL(AdminRole,'0'),IFNULL(GameModeratorRole,'0'),IFNULL(NPCRole, '0'),IFNULL(PlayerRole,'0') FROM GuildSettings WHERE ServerId=%s;""", (str(message.guild.id),))
             if not records:
@@ -5685,27 +5537,26 @@ async def on_message(message):
                 player_role = message.guild.get_role(int(row[3]))
             response = "**Server Roles**\n\n**Admin Role:** " + str(admin_role) + "\n**Game Moderator Role:** " + str(gm_role) + "\n**Alt Role:** " + str(alt_role) + "\n**Player Role:** " + str(player_role) + "\n"
             await reply_message(message, response)
+            
         elif  command == 'loaddefault':
             if not role_check(guild_settings[message.guild.id]["AdminRole"], message.author):
                 await reply_message(message, "You must be a member of the admin role to set other roles!")
                 return        
-            with open('/home/REDACTED/defaultitems.csv', newline='\n') as csvfile:
-                equipreader = csv.reader(csvfile, delimiter=',')
-                for row in equipreader:
-                    result = await commit_sql("INSERT INTO Equipment (ServerId,UserId,EquipmentName,EquipmentDescription,EquipmentCost,MinimumLevel,StatMod,Modifier) VALUES (%s, %s, %s, %s, %s, %s, %s, %s);", (str(message.guild.id), str(message.author.id),row[0], row[1], str(row[2]), str(row[3]), row[4], str(row[5])))
-
-            with open('/home/REDACTED/defaultspells.csv', newline='\n') as csvfile:
-                equipreader = csv.reader(csvfile, delimiter=',')
-                for row in equipreader:
-                    result = await commit_sql("INSERT INTO Spells (ServerId,UserId,SpellName,Element,ManaCost,MinimumLevel,DamageMultiplier,Description) VALUES (%s, %s,%s, %s, %s, %s, %s, %s);", (str(message.guild.id), str(message.author.id), row[0], row[1], str(row[2]), str(row[3]), row[4], row[5]))               
-            with open('/home/REDACTED/defaultmelee.csv', newline='\n') as csvfile:
-                equipreader = csv.reader(csvfile, delimiter=',')
-                for row in equipreader:
-                    result = await commit_sql("INSERT INTO Melee (ServerId,UserId,AttackName,StaminaCost,MinimumLevel,DamageMultiplier,Description) VALUES (%s, %s,%s, %s, %s, %s, %s);", (str(message.guild.id), str(message.author.id), row[0], row[1], str(row[2]), str(row[3]), row[4])) 
-            with open('/home/REDACTED/defaultmonsters.csv', newline='\n') as csvfile:
-                equipreader = csv.reader(csvfile, delimiter=',')
-                for row in equipreader:
-                    result = await commit_sql("INSERT INTO Monsters (ServerId,UserId,MonsterName,Description,Health, Level,Attack, Defense, Element, MagicAttack) VALUES (%s, %s,%s, %s, %s, %s, %s, %s, %s, %s);", (str(message.guild.id), str(message.author.id), row[0], row[1], str(row[2]), str(row[3]), str(row[4]), str(row[5]), row[6], str(row[7])))
+            records = await select_sql("""SELECT SpellName, Element, ManaCost, MinimumLevel, DamageMultiplier, Description, PictureLink FROM Spells WHERE ServerId=%s;""",('701795316738818188',))
+            for row in records:
+                result = await commit_sql("""INSERT INTO Spells (ServerId, UserId, SpellName, Element, ManaCost, MinimumLevel, DamageMultiplier, Description, PictureLink) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s);""",(str(message.guild.id),str(message.author.id),row[0], row[1],str(row[2]),str(row[3]), str(row[4]), row[5], row[6]))
+            records = await select_sql("""SELECT AttackName, StaminaCost, MinimumLevel, DamageMultiplier, Description, PictureLink FROM Melee WHERE ServerId=%s;""",('701795316738818188',))
+            for row in records:
+                result = await commit_sql("""INSERT INTO Melee (ServerId, UserId, AttackName, StaminaCost, MinimumLevel, DamageMultiplier, Description, PictureLink) VALUES (%s,%s,%s,%s,%s,%s,%s,%s);""",(str(message.guild.id),str(message.author.id),row[0], row[1],str(row[2]),str(row[3]), str(row[4]), row[5]))
+            records = await select_sql("""SELECT EquipmentName, EquipmentDescription, EquipmentCost, MinimumLevel, StatMod, Modifier, PictureLink FROM Equipment WHERE ServerId=%s;""",('701795316738818188',))
+            for row in records:
+                result = await commit_sql("""INSERT INTO Equipment (ServerId, UserId, EquipmentName, EquipmentDescription, EquipmentCost, MinimumLevel, StatMod, Modifier, PictureLink) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s);""",(str(message.guild.id),str(message.author.id),row[0], row[1],str(row[2]),str(row[3]), str(row[4]), row[5], row[6])) 
+            records = await select_sql("""SELECT ArmamentName, Description, ArmamentCost, Slot, MinimumLevel, DamageMin, DamageMax, Defense, StatMod, Modifier, PictureLink FROM Armaments WHERE ServerId=%s;""",('701795316738818188',))
+            for row in records:
+                result = await commit_sql("""INSERT INTO Armaments (ServerId, UserId, ArmamentName, Description, ArmamentCost, Slot, MinimumLevel, DamageMin, DamageMax, Defense, StatMod, Modifier, PictureLink) VALUES (%s,%s,%s,%s,%s,%s,%s,%s, %s,%s,%s,%s,%s);""",(str(message.guild.id),str(message.author.id),row[0], row[1],str(row[2]),str(row[3]), str(row[4]), row[5], row[6], row[7], row[8],row[9],row[10]))
+            records = await select_sql("""SELECT MonsterName, Description, Health, Level, Attack, Defense, Element, MagicAttack, MaxCurrencyDrop, PictureLink FROM Monsters WHERE  ServerId=%s;""", ('701795316738818188',))
+            for row in records:
+                result = await commit_sql("""INSERT INTO Monsters (ServerId, UserId, MonsterName, Description, Health, Level, Attack, Defense, Element, MagicAttack, MaxCurrencyDrop, PictureLink) VALUES (%s,%s,%s,%s,%s,%s,%s,%s, %s,%s,%s,%s,%s);""",(str(message.guild.id),str(message.author.id),row[0], row[1],str(row[2]),str(row[3]), str(row[4]), row[5], row[6], row[7], row[8],row[9]))
             await reply_message(message, "Done!")
         elif command == 'setbank':
             if not role_check(guild_settings[message.guild.id]["AdminRole"], message.author):
@@ -5719,6 +5570,8 @@ async def on_message(message):
                 await reply_message(message, "Guild bank balance set successfully!")
             else:
                 await reply_message(message, "Database error!")
+                
+                
         elif command == 'listsetup':
             server_id = message.guild.id
             records = await select_sql("""SELECT ServerId,IFNULL(AdminRole,'0'),IFNULL(GameModeratorRole,'0'),IFNULL(NPCRole,'0'),IFNULL(PlayerRole,'0'),IFNULL(GuildBankBalance,'0'),IFNULL(StartingHealth,'0'),IFNULL(StartingMana,'0'),IFNULL(StartingStamina,'0'),IFNULL(StartingAttack,'0'),IFNULL(StartingDefense,'0'),IFNULL(StartingMagicAttack,'0'),IFNULL(StartingAgility,'0'),IFNULL(StartingIntellect,'0'),IFNULL(StartingCharisma,'0'),IFNULL(HealthLevelRatio,'0'),IFNULL(ManaLevelRatio,'0'),IFNULL(StaminaLevelRatio,'0'),IFNULL(XPLevelRatio,'0'),IFNULL(HealthAutoHeal,'0'),IFNULL(ManaAutoHeal,'0'),IFNULL(StaminaAutoHeal,'0') FROM GuildSettings WHERE ServerId=%s;""",(str(message.guild.id),))
@@ -5774,6 +5627,8 @@ async def on_message(message):
             await reply_message(message, "Please check your DMs for instructions on how to edit server setup, <@" + str(message.author.id) + ">.")
             
             await direct_message(message, "You have requested to edit the server setup. Please type in the response the answer to each field to update, or *skip* to leave as is. When you have filled out all fields, the monster will be updated!\nThe first field is **" + dm_tracker[message.author.id]["fieldlist"][1] + "** and its current value is **" + dm_tracker[message.author.id]["fielddict"][1] + "**.")
+            
+            
         elif command == 'editsetup':
             if not role_check(guild_settings[message.guild.id]["AdminRole"], message.author):
                 await reply_message(message, "You must be a member of the admin role to edit setup!")
@@ -5801,6 +5656,8 @@ async def on_message(message):
             await reply_message(message, "Please check your DMs for instructions on how to edit server setup, <@" + str(message.author.id) + ">.")
             
             await direct_message(message, "You have requested to edit the server setup. Please type in the response the answer to each field to update, or *skip* to leave as is. When you have filled out all fields, the monster will be updated!\nThe first field is **" + dm_tracker[message.author.id]["fieldlist"][1] + "** and its current value is **" + dm_tracker[message.author.id]["fielddict"][1] + "**.")
+            
+            
         elif command == 'sendcurrency':
             if not role_check(guild_settings[message.guild.id]["PlayerRole"], message.author):
                 await reply_message(message, "You must be a member of the player role to send currency!")
@@ -5831,6 +5688,8 @@ async def on_message(message):
             for user in message.mentions:
                 await user.add_roles(role)
             await reply_message(message, "Users added to player role!")
+            
+            
         elif command == 'addgm':
             if not role_check(guild_settings[message.guild.id]["AdminRole"], message.author):
                 await reply_message(message, "You must be a member of the admin role to add Game Moderators!")
@@ -5841,7 +5700,9 @@ async def on_message(message):
             role = discord.utils.get(message.guild.roles, id=guild_settings[message.guild.id]["GameModeratorRole"])
             for user in message.mentions:
                 await user.add_roles(role)
-            await reply_message(message, "Users added to GM role!")                
+            await reply_message(message, "Users added to GM role!") 
+
+            
         elif command == 'addaltuser':
             if not role_check(guild_settings[message.guild.id]["AdminRole"], message.author):
                 await reply_message(message, "You must be a member of the admin role to add Alt Managers!")
@@ -5852,7 +5713,9 @@ async def on_message(message):
             role = discord.utils.get(message.guild.roles, id=guild_settings[message.guild.id]["NPCRole"])
             for user in message.mentions:
                 await user.add_roles(role)
-            await reply_message(message, "Users added to NPC role!")                
+            await reply_message(message, "Users added to NPC role!")  
+
+            
         elif command == 'addadmin':
             if message.author != message.guild.owner:
                 await reply_message(message, "Only the server owner can add admins!")
@@ -5863,7 +5726,9 @@ async def on_message(message):
             role = discord.utils.get(message.guild.roles, id=guild_settings[message.guild.id]["AdminRole"])
             for user in message.mentions:
                 await user.add_roles(role)
-            await reply_message(message, "Users added to admin role!")                 
+            await reply_message(message, "Users added to admin role!")  
+
+            
         elif command == 'deleteplayer':
             if not role_check(guild_settings[message.guild.id]["AdminRole"], message.author):
                 await reply_message(message, "You must be a member of the admin role to remove players!")
@@ -5874,7 +5739,9 @@ async def on_message(message):
             role = discord.utils.get(message.guild.roles, id=guild_settings[message.guild.id]["PlayerRole"])
             for user in message.mentions:
                 await user.remove_roles(role)
-            await reply_message(message, "Users removed from player role!")                
+            await reply_message(message, "Users removed from player role!")    
+
+            
         elif command == 'deletegm':
             if not role_check(guild_settings[message.guild.id]["AdminRole"], message.author):
                 await reply_message(message, "You must be a member of the admin role to remove game moderators!")
@@ -5885,10 +5752,12 @@ async def on_message(message):
             role = discord.utils.get(message.guild.roles, id=guild_settings[message.guild.id]["GameModeratorRole"])
             for user in message.mentions:
                 await user.remove_roles(role)
-            await reply_message(message, "Users removed from GM role!")                    
-        elif command == 'deletealtuser':
+            await reply_message(message, "Users removed from GM role!")    
+
+            
+        elif command == 'deletenpcuser':
             if not role_check(guild_settings[message.guild.id]["AdminRole"], message.author):
-                await reply_message(message, "You must be a member of the admin role to remove Alt Managers!")
+                await reply_message(message, "You must be a member of the admin role to remove NPC Managers!")
                 return 
             if not message.mentions:
                 await reply_message(message, "You didn't specify any users to remove!")
@@ -5896,7 +5765,8 @@ async def on_message(message):
             role = discord.utils.get(message.guild.roles, id=guild_settings[message.guild.id]["NPCRole"])
             for user in message.mentions:
                 await user.remove_roles(role)
-            await reply_message(message, "Users removed from NPC role!")                    
+            await reply_message(message, "Users removed from NPC role!")  
+            
         elif command == 'deleteadmin':
             if message.author != message.guild.owner:
                 await reply_message(message, "Only the server owner can delete admins!")
@@ -5908,6 +5778,8 @@ async def on_message(message):
             for user in message.mentions:
                 await user.remove_roles(role)
             await reply_message(message, "Users removed from admin role!") 
+            
+            
         elif command == 'resetserver':
             if message.author != message.guild.owner:
                 await reply_message(message, "Only the server owner can wipe all server data!")
@@ -5924,6 +5796,8 @@ async def on_message(message):
             dm_tracker[message.author.id]["parameters"] = parsed_string
             await reply_message(message, "**WARNING! THIS WILL WIPE ALL SERVER SETTINGS, INCLUDING CHARACTERS, ITEMS, VENDORS, SPELLS, MONSTERS, MELEE ATTACKS, AND SERVER SETTINGS FROM THE BOT! PLEASE REPLY TO THE DM WITH** ```CONFIRM``` **TO PROCEED.**")
             await direct_message(message, "**WARNING! THIS WILL WIPE ALL SERVER SETTINGS, INCLUDING CHARACTERS, ITEMS, VENDORS, SPELLS, MONSTERS, MELEE ATTACKS, AND SERVER SETTINGS FROM THE BOT! PLEASE REPLY TO THE DM WITH** ```CONFIRM``` **TO PROCEED.**\n\nAre you sure you want to do this?")
+            
+            
         elif command == 'newcustomprofile':
             if not role_check(guild_settings[message.guild.id]["AdminRole"], message.author):
                 await reply_message(message, "You must be a member of the admin role to set the bank assets!")
@@ -5966,10 +5840,12 @@ async def on_message(message):
                 await reply_message(message, "Display names for fields set successfully.")
             else:
                 await reply_message(message, "Database error!")
+                
+                
         elif command == 'invite':
             await reply_message(message,"`Click here to invite RP Mastermind:` https://discordapp.com/api/oauth2/authorize?client_id=691353869841596446&permissions=805829696&scope=bot")
         else:
             pass        
 
 
-client.run('REDACTED')
+client.run('')
