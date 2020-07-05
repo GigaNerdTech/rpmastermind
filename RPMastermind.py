@@ -25,7 +25,6 @@ server_party = { }
 server_party_chars = {} 
 guild_settings = { }
 monster_health = { }
-available_points = { }
 mass_spar = { }
 mass_spar_chars = { }
 mass_spar_event =  { }
@@ -40,6 +39,14 @@ daily = {}
 custom_commands = {} 
 allowed_ids = {}
 new_startup = True
+connection = mysql.connector.connect(host='localhost', database='CharaTron', user='REDACTED', password='REDACTED') 
+
+def reconnect_db():
+    global connection
+    if connection is None or not connection.is_connected():
+        connection = mysql.connector.connect(host='localhost', database='CharaTron', user='REDACTED', password='REDACTED')
+    return connection
+    
 
 async def log_message(log_entry):
     current_time_obj = datetime.now()
@@ -47,9 +54,10 @@ async def log_message(log_entry):
     print(current_time_string + " - " + log_entry, flush = True)
     
 async def commit_sql(sql_query, params = None):
+    global connection
     await log_message("Commit SQL: " + sql_query + "\n" + "Parameters: " + str(params))
     try:
-        connection = mysql.connector.connect(host='localhost', database='CharaTron', user='REDACTED', password='REDACTED')    
+        cconnection = reconnect_db()    
         cursor = connection.cursor()
         result = cursor.execute(sql_query, params)
         connection.commit()
@@ -57,44 +65,36 @@ async def commit_sql(sql_query, params = None):
     except mysql.connector.Error as error:
         await log_message("Database error! " + str(error))
         return False
-    finally:
-        if(connection.is_connected()):
-            cursor.close()
-            connection.close()
+
             
                 
 async def select_sql(sql_query, params = None):
-    if sql_query != 'SELECT UsersAllowed, CharName, PictureLink FROM Alts WHERE ServerId=%s AND Shortcut=%s;':
+    global connection
+    if sql_query != 'SELECT UsersAllowed, CharName, PictureLink FROM Alts WHERE ServerId=%s AND Shortcut=%s;' and sql_query != 'SELECT Id,CharacterName,Currency,Experience FROM CharacterProfiles WHERE ServerId=%s AND UserId=%s;':
         await log_message("Select SQL: " + sql_query + "\n" + "Parameters: " + str(params))
     try:
-        connection = mysql.connector.connect(host='localhost', database='CharaTron', user='REDACTED', password='REDACTED')
+        connection = reconnect_db()
         cursor = connection.cursor()
         result = cursor.execute(sql_query, params)
         records = cursor.fetchall()
-        if sql_query != 'SELECT UsersAllowed, CharName, PictureLink FROM Alts WHERE ServerId=%s AND Shortcut=%s;':
+        if sql_query != 'SELECT UsersAllowed, CharName, PictureLink FROM Alts WHERE ServerId=%s AND Shortcut=%s;' and sql_query != 'SELECT Id,CharacterName,Currency,Experience FROM CharacterProfiles WHERE ServerId=%s AND UserId=%s;':
             await log_message("Returned " + str(records))
         return records
     except mysql.connector.Error as error:
         await log_message("Database error! " + str(error))
         return None
-    finally:
-        if(connection.is_connected()):
-            cursor.close()
-            connection.close()
+
 
 async def execute_sql(sql_query):
+    global connection
     try:
-        connection = mysql.connector.connect(host='localhost', database='CharaTron', user='REDACTED', password='REDACTED')
+        connection = reconnect_db()
         cursor = connection.cursor()
         result = cursor.execute(sql_query)
         return True
     except mysql.connector.Error as error:
         await log_message("Database error! " + str(error))
         return False
-    finally:
-        if(connection.is_connected()):
-            cursor.close()
-            connection.close()
             
 async def direct_message(message, response, embed=None):
     channel = await message.author.create_dm()
@@ -105,16 +105,17 @@ async def direct_message(message, response, embed=None):
         try:
             message_chunks = [response[i:i+1900] for i in range(0, len(response), 1900)]
             for chunk in message_chunks:
-                await channel.send("" + chunk)
+                await channel.send(">>> " + chunk)
                 await asyncio.sleep(1)
             
         except discord.errors.Forbidden:
-            await dm_tracker[message.author.id]["commandchannel"].send("You have DMs off. Please reply with =answer <reply> in the server channel.\n" + response)
+            await dm_tracker[message.author.id]["commandchannel"].send(">>> You have DMs off. Please reply with =answer <reply> in the server channel.\n" + response)
         
 async def post_webhook(channel, name, response, picture):
     temp_webhook = await channel.create_webhook(name='Chara-Tron')
     await temp_webhook.send(content=response, username=name, avatar_url=picture)
     await temp_webhook.delete() 
+    
     
 async def reply_message(message, response):
     if not message.guild:
@@ -128,7 +129,7 @@ async def reply_message(message, response):
     
     message_chunks = [response[i:i+1900] for i in range(0, len(response), 1900)]
     for chunk in message_chunks:
-        await message.channel.send("" + chunk)
+        await message.channel.send(">>> " + chunk)
         asyncio.sleep(1)
 
 async def admin_check(userid):
@@ -139,12 +140,12 @@ async def admin_check(userid):
         return True
         
 async def calculate_damage(attack, defense, damage_multiplier, attacker_level, target_level):
-    total_attack_power = attack * random.randint(damage_multiplier - 2, damage_multiplier + 2)
-#    level_difference = target_level / attacker_level
-    effective_attack_power = total_attack_power # * level_difference
-    total_damage = effective_attack_power - defense
-    if total_damage < 50:
-        total_damage = 50
+    total_attack_power = attack * damage_multiplier + random.randint(-5, 5)
+
+    effective_attack_power = total_attack_power
+    total_damage = (effective_attack_power - defense) * ((attacker_level / target_level))
+    if total_damage < 20:
+        total_damage = 20
     return int(total_damage)
     
 async def calculate_dodge(attacker_agility, target_agility):
@@ -169,6 +170,8 @@ async def calculate_xp(current_level, opponent_level, damage_done, number_in_par
         return int(xp)
 async def initialize_dm(author_id):
     global dm_tracker
+    global allowed_ids
+    del allowed_ids[author_id]
     dm_tracker[author_id] = { }
     dm_tracker[author_id]["currentcommand"] = " "
     dm_tracker[author_id]["currentfield"] = 0
@@ -191,7 +194,7 @@ async def ai_castspar(message):
     target_id = message.author.id
     records = await select_sql("""SELECT Id,Element,ManaCost,MinimumLevel,DamageMultiplier,SpellName,PictureLink FROM Spells WHERE ServerId=%s ORDER BY RAND ( ) LIMIT 1;""",(str(server_id),))
     if not records:
-        await dm_tracker[message.author.id]["commandchannel"].send("No spells defined! Try again.")
+        await dm_tracker[message.author.id]["commandchannel"].send(">>> No spells defined! Try again.")
         return
     else:
         for row in records:
@@ -204,7 +207,7 @@ async def ai_castspar(message):
             picture_link = row[6]
 
     if mass_spar_chars[server_id][user_id]["Mana"] < mana_cost:
-        await dm_tracker[message.author.id]["commandchannel"].send("The AI does not have sufficient mana for this spell!")
+        await dm_tracker[message.author.id]["commandchannel"].send(">>> The AI does not have sufficient mana for this spell!")
         return
 
     mass_spar_chars[server_id][user_id]["Mana"] = mass_spar_chars[server_id][user_id]["Mana"] - mana_cost
@@ -261,13 +264,17 @@ async def ai_castspar(message):
                 total_xp = old_xp + new_xp
                 if total_xp > (guild_settings[server_id]["XPLevelRatio"] * fallen_chars[server_id][char]["Level"]):
                     fallen_chars[server_id][char]["Level"] = fallen_chars[server_id][char]["Level"] + 1
-                    available_points[server_id][char] = int(fallen_chars[server_id][char]["Level"] * 10)
-                    response = response + "**" + fallen_chars[server_id][char]["CharName"] + "** LEVELED UP TO LEVEL **" + str(fallen_chars[server_id][char]["Level"]) + "!**\nYou have " + str(int(fallen_chars[server_id][char]["Level"]*10)) + " stat points to spend!\n\n"
+                    records = await select_sql("""SELECT StatPoints FROM CharacterProfiles WHERE Id=%s;""",(str(fallen_chars[server_id][char]["CharId"]),))
+                    for row in records:
+                        stat_points = int(row[0])
+                        
+                    available_points = int(fallen_chars[server_id][char]["Level"] * 10) + stat_points
+                    response = response + "**" + fallen_chars[server_id][char]["CharName"] + "** LEVELED UP TO LEVEL **" + str(fallen_chars[server_id][char]["Level"]) + "!**\nYou have " + str(available_points) + " stat points to spend!\n\n"
                     total_xp = 0
                     health = fallen_chars[server_id][user_id]["Level"] * guild_settings[server_id]["HealthLevelRatio"]
                     stamina = fallen_chars[server_id][user_id]["Level"] * guild_settings[server_id]["StaminaLevelRatio"]
                     mana = fallen_chars[server_id][user_id]["Level"] * guild_settings[server_id]["ManaLevelRatio"]
-                    result = await commit_sql("""UPDATE CharacterProfiles SET Level=%s,Experience=%s,Health=%s,Stamina=%s,Mana=%s WHERE Id=%s;""",(str(fallen_chars[server_id][target_id]["Level"] + 1),str(total_xp),str(health), str(stamina), str(mana), str(fallen_chars[server_id][target_id]["CharId"])))
+                    result = await commit_sql("""UPDATE CharacterProfiles SET Level=%s,Experience=%s,Health=%s,Stamina=%s,Mana=%s WHERE Id=%s;""",(str(fallen_chars[server_id][target_id]["Level"] + 1),str(total_xp),str(health), str(stamina), str(mana), str(available_points), str(fallen_chars[server_id][target_id]["CharId"])))
             mass_spar_event[server_id] = False
 
             for x in mass_spar_chars[server_id].keys():
@@ -302,7 +309,7 @@ async def ai_meleespar(message):
         picture_link = row[5]
 
     if mass_spar_chars[server_id][user_id]["Stamina"] < stamina_cost:
-        await dm_tracker[message.author.id]["commandchannel"].send("The AI does not have sufficient stamina for this melee.")
+        await dm_tracker[message.author.id]["commandchannel"].send(">>> The AI does not have sufficient stamina for this melee.")
         return
         
     mass_spar_chars[server_id][user_id]["Stamina"] = mass_spar_chars[server_id][user_id]["Stamina"] - stamina_cost
@@ -359,13 +366,17 @@ async def ai_meleespar(message):
                 total_xp = old_xp + new_xp
                 if total_xp > (guild_settings[server_id]["XPLevelRatio"] * fallen_chars[server_id][char]["Level"]):
                     fallen_chars[server_id][char]["Level"] = fallen_chars[server_id][char]["Level"] + 1
-                    available_points[server_id][char] = int(fallen_chars[server_id][char]["Level"] * 10)
-                    response = response + "**" + fallen_chars[server_id][char]["CharName"] + "** LEVELED UP TO LEVEL **" + str(fallen_chars[server_id][char]["Level"]) + "!**\nYou have " + str(int(fallen_chars[server_id][char]["Level"]*10)) + " stat points to spend!\n\n"
+                    records = await select_sql("""SELECT StatPoints FROM CharacterProfiles WHERE Id=%s;""",(str(fallen_chars[server_id][char]["CharId"]),))
+                    for row in records:
+                        stat_points = int(row[0])
+                        
+                    available_points = int(fallen_chars[server_id][char]["Level"] * 10) + stat_points
+                    response = response + "**" + fallen_chars[server_id][char]["CharName"] + "** LEVELED UP TO LEVEL **" + str(fallen_chars[server_id][char]["Level"]) + "!**\nYou have " + str(available_points) + " stat points to spend!\n\n"
                     total_xp = 0
                     health = fallen_chars[server_id][user_id]["Level"] * guild_settings[server_id]["HealthLevelRatio"]
                     stamina = fallen_chars[server_id][user_id]["Level"] * guild_settings[server_id]["StaminaLevelRatio"]
                     mana = fallen_chars[server_id][user_id]["Level"] * guild_settings[server_id]["ManaLevelRatio"]
-                    result = await commit_sql("""UPDATE CharacterProfiles SET Level=%s,Experience=%s,Health=%s,Stamina=%s,Mana=%s WHERE Id=%s;""",(str(fallen_chars[server_id][target_id]["Level"] + 1),str(total_xp),str(health), str(stamina), str(mana), str(fallen_chars[server_id][target_id]["CharId"])))
+                    result = await commit_sql("""UPDATE CharacterProfiles SET Level=%s,Experience=%s,Health=%s,Stamina=%s,Mana=%s,StatPoints=%s WHERE Id=%s;""",(str(fallen_chars[server_id][target_id]["Level"] + 1),str(total_xp),str(health), str(stamina), str(mana), str(available_points), str(fallen_chars[server_id][target_id]["CharId"])))
             mass_spar_event[server_id] = False
             
             embed = discord.Embed(title="Result",description=response)
@@ -492,7 +503,7 @@ async def generate_random_ai_char(message, character_level):
     # await reply_message(message, response)
     await message.channel.send(embed=embed)
     await asyncio.sleep(1)
-    await message.channel.send("AI successfully set party character to " + char_name + ".")
+    await message.channel.send(">>> AI successfully set party character to " + char_name + ".")
     
     
 def role_check(role_required, user):
@@ -604,7 +615,7 @@ async def monster_attack(author_id):
             await dm_tracker[author_id]["commandchannel"].send(server_party_chars[server_id][target]["CharName"] + " has no health left and is out of the fight!")
             del server_party_chars[server_id][target]
         if len(server_party_chars[server_id]) < 1:
-            await dm_tracker[author_id]["commandchannel"].send("The party has been vanquished! " +server_monsters[server_id]["MonsterName"] + " wins! No experience will be awarded.")
+            await dm_tracker[author_id]["commandchannel"].send(">>> The party has been vanquished! " +server_monsters[server_id]["MonsterName"] + " wins! No experience will be awarded.")
             server_encounters[server_id] = False
 
 async def make_simple_menu(message, table1, name_field):
@@ -643,7 +654,6 @@ async def on_ready():
     global server_party
     global server_party_chars
     global guild_settings
-    global available_points
     global mass_spar
     global mass_spar_chars
     global mass_spar_event
@@ -659,6 +669,7 @@ async def on_ready():
     global daily
     global custom_commands
     global client
+    global allowed_ids
     
     await log_message("Logged in!")
     
@@ -669,7 +680,6 @@ async def on_ready():
             except: alt_aliases[guild.id] = {}
             try: npc_aliases[guiild.id]
             except: npc_aliases[guild.id] = {}
-            available_points[guild.id] = {}
             server_encounters[guild.id] = False
             server_monsters[guild.id] = {} 
             server_party[guild.id] = {}
@@ -690,6 +700,7 @@ async def on_ready():
                 except: alt_aliases[guild.id][user.id] = {}
                 try: npc_aliases[guiild.id][user.id]
                 except: npc_aliases[guild.id][user.id] = {}
+                allowed_ids[user.id] = []
                 for channel in guild.text_channels:
                     try: alt_aliases[guild.id][user.id][channel.id]
                     except: alt_aliases[guild.id][user.id][channel.id] = ""
@@ -697,7 +708,7 @@ async def on_ready():
                     except: npc_aliases[guild.id][user.id][channel.id] = ""                
         # GMRole,NPCRole,PlayerRole,GuildBankBalance,StartingHealth,StartingMana,StartingStamina,StartingAttack,StartingDefense,StartingMagicAttack,StartingAgility,StartingIntellect,StartingCharisma,HealthLevelRatio,ManaLevelRatio,StaminaLevelRatio,XPLevelRatio,HealthAutoHeal,ManaAutoHeal,StaminaAutoHeal
         # ALTER TABLE GuildSettings ADD COLUMN StartingHealth Int, StartingMana Int, StartingStamina Int, StartingAttack Int, StartingDefense Int, StartingMagicAttack Int, StartingAgility Int, StartingIntellect Int, StartingCharisma Int, HealthLevelRatio Int, ManaLevelRatio Int, StaminaLevelRatio Int, XPLevelRatio Int, HealthAutoHeal DECIMAL(1,2), ManaAutoHeal DECIMAL (1,2), StaminaAutoHeal DECIMAL(1,2);
-        records = await select_sql("""SELECT ServerId,IFNULL(AdminRole,'0'),IFNULL(GameModeratorRole,'0'),IFNULL(NPCRole,'0'),IFNULL(PlayerRole,'0'),IFNULL(StartingHealth,'0'),IFNULL(StartingMana,'0'),IFNULL(StartingStamina,'0'),IFNULL(StartingAttack,'0'),IFNULL(StartingDefense,'0'),IFNULL(StartingMagicAttack,'0'),IFNULL(StartingAgility,'0'),IFNULL(StartingIntellect,'0'),IFNULL(StartingCharisma,'0'),IFNULL(HealthLevelRatio,'0'),IFNULL(ManaLevelRatio,'0'),IFNULL(StaminaLevelRatio,'0'),IFNULL(XPLevelRatio,'0'),IFNULL(HealthAutoHeal,'0'),IFNULL(ManaAutoHeal,'0'),IFNULL(StaminaAutoHeal,'0') FROM GuildSettings;""")
+        records = await select_sql("""SELECT ServerId,IFNULL(AdminRole,'0'),IFNULL(GameModeratorRole,'0'),IFNULL(NPCRole,'0'),IFNULL(PlayerRole,'0'),IFNULL(StartingHealth,'0'),IFNULL(StartingMana,'0'),IFNULL(StartingStamina,'0'),IFNULL(StartingAttack,'0'),IFNULL(StartingDefense,'0'),IFNULL(StartingMagicAttack,'0'),IFNULL(StartingAgility,'0'),IFNULL(StartingIntellect,'0'),IFNULL(StartingCharisma,'0'),IFNULL(HealthLevelRatio,'0'),IFNULL(ManaLevelRatio,'0'),IFNULL(StaminaLevelRatio,'0'),IFNULL(XPLevelRatio,'0'),IFNULL(HealthAutoHeal,'0'),IFNULL(ManaAutoHeal,'0'),IFNULL(StaminaAutoHeal,'0'),IFNULL(XPChannelId,'0'),IFNULL(AutoCharApproval,'0') FROM GuildSettings;""")
         if records:
             for row in records:
                 server_id = int(row[0])
@@ -742,6 +753,10 @@ async def on_ready():
                     guild_settings[server_id]["ManaAutoHeal"] = float(row[19])
                 if row[20] is not None:   
                     guild_settings[server_id]["StaminaAutoHeal"] = float(row[20])
+                if row[21] is not None:
+                    guild_settings[server_id]["XPChannel"] = client.get_channel(int(row[21]))
+                if row[22] is not None:
+                    guild_settings[server_id]["AutoCharApproval"] = int(row[22])
         records = await select_sql("""SELECT ServerId, UserId, ChannelId, Shortcut FROM AltChannels;""")
         for row in records:
             server_id = int(row[0])
@@ -752,18 +767,18 @@ async def on_ready():
             alt_aliases[server_id] = {}
             alt_aliases[server_id][user_id] = { }
             alt_aliases[server_id][user_id][channel_id] = shortcut
-        records = await select_sql("""SELECT UserId, CurrentCommand, CurrentField, FieldList, FieldDict, ServerId, CommandChannel, Parameters, FieldMeans FROM DMTracker;""")
-        for row in records:
-            user = int(row[0])
-            dm_tracker[user] = { }
-            dm_tracker[user]["currentcommand"] = row[1]
-            dm_tracker[user]["currentfield"] = int(row[2])
-            dm_tracker[user]["fieldlist"] = row[3].split(',')
-            dm_tracker[user]["fielddict"] = row[4].split(',')
-            dm_tracker[user]["server_id"] = int(row[5])
-            dm_tracker[user]["commandchannel"] = client.get_channel(int(row[6]))
-            dm_tracker[user]["parameters"] = row[7]
-            dm_tracker[user]["fieldmeans"] = row[8].split('|')
+#        records = await select_sql("""SELECT UserId, CurrentCommand, CurrentField, FieldList, FieldDict, ServerId, CommandChannel, Parameters, FieldMeans FROM DMTracker;""")
+#        for row in records:
+#            user = int(row[0])
+#            dm_tracker[user] = { }
+#            dm_tracker[user]["currentcommand"] = row[1]
+#            dm_tracker[user]["currentfield"] = int(row[2])
+#            dm_tracker[user]["fieldlist"] = row[3].split(',')
+#            dm_tracker[user]["fielddict"] = row[4].split(',')
+#            dm_tracker[user]["server_id"] = int(row[5])
+#            dm_tracker[user]["commandchannel"] = client.get_channel(int(row[6]))
+#            dm_tracker[user]["parameters"] = row[7]
+#            dm_tracker[user]["fieldmeans"] = row[8].split('|')
         
         records = await select_sql("""SELECT ServerId,Command,Responses FROM CustomCommands;""")
         for row in records:
@@ -775,7 +790,6 @@ async def on_ready():
             
 @client.event
 async def on_guild_join(guild):
-    global available_points
     global server_monsters
     global server_encounters
     global server_party
@@ -801,7 +815,6 @@ async def on_guild_join(guild):
     server_party[guild.id] = { }
     server_party_chars[guild.id] = { }
     guild_settings[guild.id] = {}
-    available_points[guild.id] = { }
     mass_spar[guild.id] = { }
     mass_spar_event[guild.id] = False
     mass_spar_confirm[guild.id] = { }
@@ -809,9 +822,9 @@ async def on_guild_join(guild):
     alt_aliases[guild.id] = { }
     npc_aliases[guild.id] = { }
     fallen_chars[guild.id] = { }
-    custom_commands = {} 
+    custom_commands[guild.id] = {} 
 
-    result = await commit_sql("""INSERT INTO GuildSettings (ServerId,GuildBankBalance,StartingHealth,StartingMana,StartingStamina,StartingAttack,StartingDefense,StartingMagicAttack,StartingAgility,StartingIntellect,StartingCharisma,HealthLevelRatio,ManaLevelRatio,StaminaLevelRatio,XPLevelRatio,HealthAutoHeal,ManaAutoHeal,StaminaAutoHeal) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s);""",(str(guild.id),"1000000","200","100","100","10","5","10","10","10","10","200","100","100","20","0.2","0.1","0.1",))
+    result = await commit_sql("""INSERT INTO GuildSettings (ServerId,GuildBankBalance,StartingHealth,StartingMana,StartingStamina,StartingAttack,StartingDefense,StartingMagicAttack,StartingAgility,StartingIntellect,StartingCharisma,HealthLevelRatio,ManaLevelRatio,StaminaLevelRatio,XPLevelRatio,HealthAutoHeal,ManaAutoHeal,StaminaAutoHeal,XPChannelId) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s, %s);""",(str(guild.id),"1000000","200","100","100","10","5","10","10","10","10","200","100","100","200","0.05","0.1","0.1","0"))
     guild_settings[guild.id]["StartingHealth"] = 200
     guild_settings[guild.id]["StartingMana"] = 100
 
@@ -835,13 +848,16 @@ async def on_guild_join(guild):
 
     guild_settings[guild.id]["StaminaLevelRatio"] = 100
 
-    guild_settings[guild.id]["XPLevelRatio"] = 20
+    guild_settings[guild.id]["XPLevelRatio"] = 200
 
-    guild_settings[guild.id]["HealthAutoHeal"] = 0.2
+    guild_settings[guild.id]["HealthAutoHeal"] = 0.05
 
     guild_settings[guild.id]["ManaAutoHeal"] = 0.1
 
-    guild_settings[guild.id]["StaminaAutoHeal"] = 0.1    
+    guild_settings[guild.id]["StaminaAutoHeal"] = 0.1  
+    guild_settings[server_id]["XPChannel"] = None
+
+    custom_commands[guild.id] = { }
     encounter_turn[guild.id] = 0
     
     daily[guild.id] = {}
@@ -849,7 +865,6 @@ async def on_guild_join(guild):
         daily[guild.id][user.id] = { }
         npc_aliases[guild.id][user.id] = { }
         alt_aliases[guild.id][user.id] = { }
-        available_points[guild.id][user.id] = 0
         for channel in guild.text_channels:
             npc_aliases[guild.id][user.id][channel.id] = ""
             alt_aliases[guild.id][user.id][channel.id] = ""
@@ -875,7 +890,6 @@ async def on_message(message):
     global server_party
     global server_party_chars
     global guild_settings
-    global available_points
     global mass_spar
     global mass_spar_chars
     global mass_spar_event
@@ -895,7 +909,55 @@ async def on_message(message):
         return
     if message.author == client.user:
         return
+    try: npc_aliases[message.guild.id]
+    except: 
+        try: 
+            message.guild.id
+            npc_aliases[message.guild.id] = {} 
+        except: pass
+        
+    try: npc_aliases[message.guild.id][message.author.id]
     
+    except: 
+        try: 
+            message.guild.id
+            npc_aliases[message.guild.id][message.author.id] = { }
+        
+        except:
+            pass
+
+    try: npc_aliases[message.guild.id][message.author.id][message.channel.id]
+    except:        
+        try: 
+            message.guild.id
+            pc_aliases[message.guild.id][message.author.id][message.channel.id] = None
+        except:
+            pass    
+                
+    try: alt_aliases[message.guild.id]
+    except: 
+        try: 
+            message.guild.id
+            alt_aliases[message.guild.id] = {} 
+        except: pass
+        
+    try: alt_aliases[message.guild.id][message.author.id]
+    
+    except: 
+        try: 
+            message.guild.id
+            alt_aliases[message.guild.id][message.author.id] = { }
+        
+        except:
+            pass
+
+    try: alt_aliases[message.guild.id][message.author.id][message.channel.id]
+    except:        
+        try: 
+            message.guild.id
+            npc_aliases[message.guild.id][message.author.id][message.channel.id] = None
+        except:
+            pass                
     das_server = message.guild
     
     if message.content.startswith('=answer'):
@@ -905,21 +967,22 @@ async def on_message(message):
     if not das_server:
         await log_message("Received DM from user " + message.author.name + " with content " + message.content)
 
-        if allowed_ids[message.author.id] is not None:
-           
-                
-            allowed_to_continue = False
-            if message.content == '0':
-                allowed_to_continue = True
-            for x in allowed_ids[message.author.id]:
-                if x == message.content:
+        try: 
+            allowed_ids[message.author.id][0]
+            await log_message(str(allowed_ids[mesasge.author.id][0]))
+            if allowed_ids[message.author.id][0] is not None:    
+                allowed_to_continue = False
+                if message.content == '0' or message.content == 'end':
                     allowed_to_continue = True
-            if not allowed_to_continue:
-                await direct_message(message, "The ID you gave is not in the list. Please try again.")
-                return
-            else:
-                allowed_ids[message.author.id].clear()
-
+                for x in allowed_ids[message.author.id]:
+                    if x == message.content:
+                        allowed_to_continue = True
+                if not allowed_to_continue:
+                    await direct_message(message, "The ID you gave is not in the list. Please try again.")
+                    return
+                else:
+                    allowed_ids[message.author.id] = None
+        except: pass
                     
         current_command = dm_tracker[message.author.id]["currentcommand"]
         current_field = dm_tracker[message.author.id]["currentfield"]
@@ -927,12 +990,12 @@ async def on_message(message):
         field_dict = dm_tracker[message.author.id]["fielddict"]
         server_id = dm_tracker[message.author.id]["server_id"]
         field_means = dm_tracker[message.author.id]["fieldmeans"]
-        result = await commit_sql("""DELETE FROM DMTracker WHERE UserId=%s;""",(str(message.author.id),))
-        temp_list = []
-        for x in field_dict:
-            temp_list.append(str(x))
-        if current_command.startswith('new') or current_command.startswith('edit'):    
-            result = await commit_sql("""INSERT INTO DMTracker (UserId, CurrentCommand, CurrentField, FieldList, FieldDict, ServerId, CommandChannel, Parameters, FieldMeans) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s);""",(str(message.author.id), current_command, str(current_field+ 1), ','.join(field_list), ','.join(temp_list), str(server_id), str(dm_tracker[message.author.id]["commandchannel"].id), dm_tracker[message.author.id]["parameters"], str(','.join(dm_tracker[message.author.id]["fieldmeans"]))))
+#        result = await commit_sql("""DELETE FROM DMTracker WHERE UserId=%s;""",(str(message.author.id),))
+#        temp_list = []
+#       for x in field_dict:
+ #           temp_list.append(str(x))
+ #       if current_command.startswith('new') or current_command.startswith('edit'):    
+ #           result = await commit_sql("""INSERT INTO DMTracker (UserId, CurrentCommand, CurrentField, FieldList, FieldDict, ServerId, CommandChannel, Parameters, FieldMeans) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s);""",(str(message.author.id), current_command, str(current_field+ 1), ','.join(field_list), ','.join(temp_list), str(server_id), str(dm_tracker[message.author.id]["commandchannel"].id), dm_tracker[message.author.id]["parameters"], str(','.join(dm_tracker[message.author.id]["fieldmeans"]))))
         
         await log_message("Command : " + current_command + " Field: " + str(current_field) + " Field list: " +str(field_list) + " Field dict: " + str(field_dict))
         
@@ -947,10 +1010,10 @@ async def on_message(message):
             if re.search(r"Id",field_list[current_field]) and re.search(r"[^0-9]",message.content) and not re.search(r"setup",current_command):
                 await direct_message(message, "That is not a valid ID. Please enter one of the IDs specified above as a reply and try again.")
                 return
-            if field_list[current_field] == 'StatMod' and not re.search(r"Attack|Defense|MagicAttack|Health|Mana|Stamina|Agility|Intellect|Charisma", message.content) and not re.search(r"skip",message.content, re.IGNORECASE):
+            if field_list[current_field] == 'StatMod' and not re.search(r"Attack|Defense|MagicAttack|Health|Mana|Stamina|Agility|Intellect|Charisma|None", message.content) and not re.search(r"skip",message.content, re.IGNORECASE):
                 await direct_message(message, "That is not a valid response. Valid stats are Attack, Defense, MagicAttack, Health, Mana, Stamina, Agility, Intellect or Charisma, and these are case sensitive. Please reply again with a valid stat.")
                 return
-            if (re.search(r"Health$|Attack|Defense|MagicAttack|Modifier|Level|Mana$|Stamina$|Agility|Charisma|Intellect|Modifier|ManaCost|StaminaCost|DamageMultiplier|MinimumLevel|DamageMin|DamageMax",field_list[current_field]) and re.search(r"[^0-9\-]",message.content)  and not (message.content == 'skip' or message.content == 'Skip')):
+            if (re.search(r"Health$|Attack$|Defense|MagicAttack|Modifier|Level|Mana$|Stamina$|Agility|Charisma|Intellect|Modifier|ManaCost|StaminaCost|DamageMultiplier|MinimumLevel|DamageMin|DamageMax",field_list[current_field]) and re.search(r"[^0-9\-]",message.content)  and not (message.content == 'skip' or message.content == 'Skip')):
                 await reply_message(message, "This field only allows numerical integer values. Please only use 0-9 or a hyphen (-, to indicate negative numbers) and reply again.")
                 return
                 
@@ -959,17 +1022,19 @@ async def on_message(message):
                 return                    
 
         
-        if re.search(r"skip",message.content, re.IGNORECASE) and current_field < len(field_list) + 1 and current_command.startswith('edit'):
+        if re.search(r"skip",message.content, re.IGNORECASE) and current_field < len(field_list) - 1 and current_command.startswith('edit'):
             dm_tracker[message.author.id]["currentfield"] = dm_tracker[message.author.id]["currentfield"] + 1
             if current_field < len(field_list) - 1:
-                embed=discord.Embed(title=field_list[current_field + 1],description=current_command)
-                embed.add_field(name="Next field:",value=dm_tracker[message.author.id]["fieldlist"][current_field + 1])
-                embed.add_field(name="Next field description:",value=field_means[current_field + 1])
-                embed.add_field(name="Next field value:",value=str(dm_tracker[message.author.id]["fielddict"][current_field + 1]))
-                embed.add_field(name="Last field:",value=field_list[current_field])
-                embed.add_field(name="Last field status:",value="Skipped")                
+#                embed=discord.Embed(title=field_list[current_field + 1],description=current_command)
+#                embed.add_field(name="Next field:",value=dm_tracker[message.author.id]["fieldlist"][current_field + 1])
+
+                embed=discord.Embed(title=field_list[current_field + 1],description=field_means[current_field + 1])
+                embed.add_field(name="Value:",value=str(dm_tracker[message.author.id]["fielddict"][current_field + 1]))
+#                embed.add_field(name="Description:",value=field_means[current_field + 1])                
+#                embed.add_field(name="Last field status:",value="Skipped")                
                 embed.add_field(name="Instructions:",value="Enter the desired value as a reply, or *skip* to keep the current value, or *stop* to stop this command completely.")
                 await direct_message(message, " ", embed)
+#                await direct_message(message, "Value:" + str(dm_tracker[message.author.id]["fielddict"][current_field + 1]))
                 # await direct_message(message, "Skipping field **"  + field_list[current_field] + "** and not changing its value.\n\nThe next field is **" + dm_tracker[message.author.id]["fieldlist"][current_field + 1] + "**\n\nwith a description of: " + field_means[current_field + 1] + "\n\nand its value is **" + str(dm_tracker[message.author.id]["fielddict"][current_field + 1]) + "**. Reply with the new value or *skip* to leave the current value.")
                 
                 return
@@ -983,7 +1048,7 @@ async def on_message(message):
          
             
 
-        if current_command.startswith('edit') and current_field < len(field_list):
+        if current_command.startswith('edit') and current_field < len(field_list) - 1:
             if current_field == 0 and message.content.strip() != dm_tracker[message.author.id]["fielddict"][0] and current_command != 'editstats':
                 dm_tracker[message.author.id]["parameters"] = dm_tracker[message.author.id]["fielddict"][0]
                 
@@ -993,22 +1058,32 @@ async def on_message(message):
            
                 if message.attachments:
                     dm_tracker[message.author.id]["fielddict"][current_field] = message.attachments[0].url
-                embed = discord.Embed(title=field_list[current_field + 1],description=current_command)
-                embed.add_field(name="Next field:",value=dm_tracker[message.author.id]["fieldlist"][current_field + 1])
-                embed.add_field(name="Next field description:",value=field_means[current_field + 1])
-                embed.add_field(name="Next field value:",value=str(dm_tracker[message.author.id]["fielddict"][current_field + 1]))
-                embed.add_field(name="Last field:",value=dm_tracker[message.author.id]["fieldlist"][current_field])
-                embed.add_field(name="Last field status:",value="Value edited to " + dm_tracker[message.author.id]["fielddict"][current_field])                
+#                embed = discord.Embed(title=field_list[current_field + 1],description=current_command)
+#                embed.add_field(name="Next field:",value=dm_tracker[message.author.id]["fieldlist"][current_field + 1])
+#                embed.add_field(name="Next field description:",value=field_means[current_field + 1])
+#                embed.add_field(name="Last field:",value=dm_tracker[message.author.id]["fieldlist"][current_field])
+#                embed.add_field(name="Last field status:",value="Value edited")                
+#                embed.add_field(name="Instructions:",value="Reply with the new desired value, type *skip* to keep the current value, or type *stop* to cancel the command.")
+                embed = discord.Embed(title=dm_tracker[message.author.id]["fieldlist"][current_field + 1], description=field_means[current_field + 1])
+                embed.add_field(name="Value:",value=str(dm_tracker[message.author.id]["fielddict"][current_field + 1]))
+#                embed.add_field(name="Description:",value=field_means[current_field + 1])
                 embed.add_field(name="Instructions:",value="Reply with the new desired value, type *skip* to keep the current value, or type *stop* to cancel the command.")
+                
                 await direct_message(message, " ", embed)
+#                await direct_message(message, "**Next field value:** " + str(dm_tracker[message.author.id]["fielddict"][current_field + 1]))
 #                 await direct_message(message, "Setting field **"  + dm_tracker[message.author.id]["fieldlist"][current_field] + "** to **" + message.content.strip() + "**.\n\nThe next field is **" + dm_tracker[message.author.id]["fieldlist"][current_field + 1] + "**\n\nwith a description of " + field_means[current_field] + "\n\nand its value is **" + str(dm_tracker[message.author.id]["fielddict"][current_field + 1]) + "**. Reply with the new value or *skip* to leave the current value.")
             else:
                 if message.attachments:
                     field_dict[len(field_dict) - 1] = message.attachments[0].url                
-                embed = discord.Embed(title=field_list[current_field],description=current_command)
-                embed.add_field(name="Current field:",value=dm_tracker[message.author.id]["fieldlist"][current_field])
-                embed.add_field(name="Value set to:",value=dm_tracker[message.author.id]["fielddict"][current_field])
+#                embed = discord.Embed(title=field_list[current_field],description=current_command)
+ #               embed.add_field(name="Current field:",value=dm_tracker[message.author.id]["fieldlist"][current_field])
+#                embed.add_field(name="Value set to:",value=dm_tracker[message.author.id]["fielddict"][current_field])
+                
+                embed = discord.Embed(title=dm_tracker[message.author.id]["fieldlist"][current_field], description=field_means[current_field])
+                embed.add_field(name="Value:",value=str(dm_tracker[message.author.id]["fielddict"][current_field]))
                 embed.add_field(name="Instructions:",value="That was the last field. Type *end* to commit all edits to the database or *stop* to cancel.")
+                await direct_message(message, " ", embed)
+#                await direct_message(message, "Value set to: " + str(dm_tracker[message.author.id]["fielddict"][current_field]))
 #                await direct_message(message, "Setting field **"  + dm_tracker[message.author.id]["fieldlist"][current_field] + "** to **" + message.content.strip() + "**. That was the last field. Reply *end* to commit to the database.")            
             
             return
@@ -1084,10 +1159,10 @@ async def on_message(message):
         elif current_command == 'resetserver':
             if message.content != 'CONFIRM':
                 await direct_message(message, "Server reset canceled.")
-                await dm_tracker[message.author.id]["commandchannel"].send("Server reset canceled.")
+                await dm_tracker[message.author.id]["commandchannel"].send(">>> Server reset canceled.")
                 return
             else:
-                await dm_tracker[message.author.id]["commandchannel"].send("Server reset commencing...")
+                await dm_tracker[message.author.id]["commandchannel"].send(">>> Server reset commencing...")
                 delete_tuple = ()
                 for x in range(0,10):
                     delete_tuple = delete_tuple + (str(dm_tracker[message.author.id]["server_id"]),)
@@ -1095,9 +1170,9 @@ async def on_message(message):
                 for delete in deletions:
                 
                     await commit_sql("""DELETE FROM """ + delete + """ WHERE ServerId=%s;""", (str(dm_tracker[message.author.id]["server_id"]),))
-                result = await commit_sql("""INSERT INTO GuildSettings (ServerId,GuildBankBalance,StartingHealth,StartingMana,StartingStamina,StartingAttack,StartingDefense,StartingMagicAttack,StartingAgility,StartingIntellect,StartingCharisma,HealthLevelRatio,ManaLevelRatio,StaminaLevelRatio,XPLevelRatio,HealthAutoHeal,ManaAutoHeal,StaminaAutoHeal) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s);""",(str(dm_tracker[message.author.id]["server_id"]),"1000000","200","100","100","10","5","10","10","10","10","200","100","100","20","0.2","0.1","0.1"))
+                result = await commit_sql("""INSERT INTO GuildSettings (ServerId,GuildBankBalance,StartingHealth,StartingMana,StartingStamina,StartingAttack,StartingDefense,StartingMagicAttack,StartingAgility,StartingIntellect,StartingCharisma,HealthLevelRatio,ManaLevelRatio,StaminaLevelRatio,XPLevelRatio,HealthAutoHeal,ManaAutoHeal,StaminaAutoHeal) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s);""",(str(dm_tracker[message.author.id]["server_id"]),"1000000","200","100","100","10","5","10","10","10","10","200","100","100","200","0.05","0.1","0.1"))
                 await direct_message(message, "Server reset complete!")
-                await dm_tracker[message.author.id]["commandchannel"].send("Server reset complete! Please run =setadminrole @adminrole followed by =newsetup to create a new setup for this server!")
+                await dm_tracker[message.author.id]["commandchannel"].send(">>> Server reset complete! Please run =setadminrole @adminrole followed by =newsetup to create a new setup for this server!")
                 return
 
         elif current_command == 'deletevendoritem':
@@ -1132,14 +1207,14 @@ async def on_message(message):
                 result = await commit_sql("UPDATE Vendors SET ItemList=%s WHERE Id=%s",(items, field_dict[0]))
                 if result:
                     await direct_message(message, "Item deleted from vendor successfully.")
-                    await dm_tracker[message.author.id]["commandchannel"].send("Item deleted from vendor successfully.")
+                    await dm_tracker[message.author.id]["commandchannel"].send(">>> Item deleted from vendor successfully.")
                 return
         elif current_command == 'newrandomchar':
             if message.content == 'YES':
                 result = await insert_into(message, "UnapprovedCharacterProfiles")
                 if result:
                     await direct_message(message, "Character application for " + field_dict[0] + " created successfully.")
-                    await dm_tracker[message.author.id]["commandchannel"].send("Character application for  " + field_dict[0] + " successfully created.\n\nAfter approval, you may edit any character fields with =editchar.\n\n<@&" + str(guild_settings[dm_tracker[message.author.id]["server_id"]]["AdminRole"]) + ">, please approve or decline the character with =approvechar or =denychar.")
+                    await dm_tracker[message.author.id]["commandchannel"].send(">>> Character application for  " + field_dict[0] + " successfully created.\n\nAfter approval, you may edit any character fields with =editchar.\n\n<@&" + str(guild_settings[dm_tracker[message.author.id]["server_id"]]["AdminRole"]) + ">, please approve or decline the character with =approvechar or =denychar.")
                 else:
                     await direct_message(message, "Database error!")
             else:
@@ -1177,7 +1252,7 @@ async def on_message(message):
                 result = await commit_sql("UPDATE Armory SET ItemList=%s WHERE Id=%s",(items, field_dict[0]))
                 if result:
                     await direct_message(message, "Item deleted from armory successfully.")
-                    await dm_tracker[message.author.id]["commandchannel"].send("Item deleted from armory successfully.")                
+                    await dm_tracker[message.author.id]["commandchannel"].send(">>> Item deleted from armory successfully.")                
         elif current_command == 'approvechar':
             unapproved_char_id = message.content
             records = await select_sql("""SELECT CharacterName,UserId FROM UnapprovedCharacterProfiles WHERE Id=%s""", (message.content,))
@@ -1185,8 +1260,8 @@ async def on_message(message):
                 char_name = row[0]
                 char_user_id = row[1]
             # Copy to Character profiles
-            records = await select_sql("""SELECT ServerId,UserId,CharacterName,Age,Race,Gender,Height,Weight,Playedby,Origin,Occupation,PictureLink,Attack,Defense,MagicAttack,Health,Mana,Level,Experience,Stamina,Agility,Intellect,Charisma,Currency,IFNULL(Biography,'None'),IFNULL(Description,'None'),IFNULL(Personality,'None'),IFNULL(Powers,'None'),IFNULL(Strengths,'None'),IFNULL(Weaknesses,'None'),IFNULL(Skills,'None') FROM UnapprovedCharacterProfiles WHERE Id=%s;""", (message.content,))
-            insert_statement = """INSERT INTO CharacterProfiles (ServerId,UserId,CharacterName,Age,Race,Gender,Height,Weight,Playedby,Origin,Occupation,PictureLink,Attack,Defense,MagicAttack,Health,Mana,Level,Experience,Stamina,Agility,Intellect,Charisma,Currency,Biography,Description,Personality,Powers,Strengths,Weaknesses,Skills) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s);"""
+            records = await select_sql("""SELECT ServerId,UserId,CharacterName,Age,Race,Gender,Height,Weight,Playedby,Origin,Occupation,PictureLink,Attack,Defense,MagicAttack,Health,Mana,Level,Experience,Stamina,Agility,Intellect,Charisma,Currency,IFNULL(Biography,'None'),IFNULL(Description,'None'),IFNULL(Personality,'None'),IFNULL(Powers,'None'),IFNULL(Strengths,'None'),IFNULL(Weaknesses,'None'),IFNULL(Skills,'None'),StatPoints FROM UnapprovedCharacterProfiles WHERE Id=%s;""", (message.content,))
+            insert_statement = """INSERT INTO CharacterProfiles (ServerId,UserId,CharacterName,Age,Race,Gender,Height,Weight,Playedby,Origin,Occupation,PictureLink,Attack,Defense,MagicAttack,Health,Mana,Level,Experience,Stamina,Agility,Intellect,Charisma,Currency,Biography,Description,Personality,Powers,Strengths,Weaknesses,Skills,StatPoints) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s);"""
             insert_tuple = ()
             for row in records:
                 for item in row:
@@ -1194,7 +1269,7 @@ async def on_message(message):
             result = await commit_sql(insert_statement, insert_tuple)        
 #            result = await commit_sql("""INSERT INTO CharacterProfiles (SELECT * FROM UnapprovedCharacterProfiles WHERE Id=%s);""", (message.content,))
             if result:
-                await dm_tracker[message.author.id]["commandchannel"].send("<@" + char_user_id + ">, your character is approved! You may now play as " + char_name + ".")
+                await dm_tracker[message.author.id]["commandchannel"].send(">>> <@" + char_user_id + ">, your character is approved! You may now play as " + char_name + ".")
             else:
                 await direct_message(message, "Database error!")
                 return
@@ -1238,8 +1313,8 @@ async def on_message(message):
                     response = response + "\n\nThe character was also deleted from unapproved profiles for the above reason. Please create a new application that fits the server rules.\n"
                 user_obj = client.get_user(int(user_id))
                 channel = await user_obj.create_dm()
-                await channel.send("" + response)
-                await dm_tracker[message.author.id]["commandchannel"].send("" + char_name + " was declined. <@" + str(user_id) + ">, please check your DMs for the reason.")
+                await channel.send(">>> " + response)
+                await dm_tracker[message.author.id]["commandchannel"].send(">>> " + char_name + " was declined. <@" + str(user_id) + ">, please check your DMs for the reason.")
                 return
                     
         elif current_command == 'setencounterchar':
@@ -1295,7 +1370,7 @@ async def on_message(message):
 
                                   
                     
-            await dm_tracker[message.author.id]["commandchannel"].send("" + message.author.name + " successfully set party character to " + char_name + ".")        
+            await dm_tracker[message.author.id]["commandchannel"].send(">>> " + message.author.name + " successfully set party character to " + char_name + ".")        
             await direct_message(message,"You successfully set your party character to " + char_name + ".")
             return
         elif current_command == 'encountermonster':
@@ -1328,7 +1403,7 @@ async def on_message(message):
             embed.add_field(name="First Turn:",value="<@" + str(list(server_party[server_id])[encounter_turn[server_id]].id) + ">")
             await dm_tracker[message.author.id]["commandchannel"].send(embed=embed)
             
-            #await dm_tracker[message.author.id]["commandchannel"].send("The level " + str(server_monsters[server_id]["Level"]) + " **" + monster_name + "** has appeared in " + str(dm_tracker[message.author.id]["commandchannel"].name) + "! As described: " + server_monsters[server_id]["Description"] + "\n" + server_monsters[server_id]["PictureLink"] + "\n\nGood luck!\n\n<@" + str(list(server_party[server_id])[encounter_turn[server_id]].id) + "> gets first blood!")
+            #await dm_tracker[message.author.id]["commandchannel"].send(">>> The level " + str(server_monsters[server_id]["Level"]) + " **" + monster_name + "** has appeared in " + str(dm_tracker[message.author.id]["commandchannel"].name) + "! As described: " + server_monsters[server_id]["Description"] + "\n" + server_monsters[server_id]["PictureLink"] + "\n\nGood luck!\n\n<@" + str(list(server_party[server_id])[encounter_turn[server_id]].id) + "> gets first blood!")
             return
         elif current_command == 'givebuff':
             if current_field == 0:
@@ -1353,7 +1428,7 @@ async def on_message(message):
                     
                 if result:
                     await direct_message(message, char_name + " can now use the buff " + spell_name + "!")
-                    await dm_tracker[message.author.id]["commandchannel"].send("" + char_name + " can now use the buff " + spell_name + "!")
+                    await dm_tracker[message.author.id]["commandchannel"].send(">>> " + char_name + " can now use the buff " + spell_name + "!")
                     await initialize_dm(message.author.id)
                 else:
                     await direct_message(message, "Database error!")
@@ -1363,15 +1438,19 @@ async def on_message(message):
                 dm_tracker[message.author.id]["fielddict"].append(message.content)
                 await direct_message(message, "Enter the number of stat points to grant.")
                 dm_tracker[message.author.id]["currentfield"] = 1
+                await log_message("value after givestat: " + str(dm_tracker[message.author.id]["currentfield"]))
                 return
             if current_field == 1:
-                records = await select_sql("""SELECT UserId,CharacterName FROM CharacterProfiles WHERE Id=%s""",(dm_tracker[message.author.id]["fielddict"][0],))
+                records = await select_sql("""SELECT UserId,CharacterName,StatPoints,Id FROM CharacterProfiles WHERE Id=%s""",(dm_tracker[message.author.id]["fielddict"][0],))
                 for row in records:
                     char_user = int(row[0])
                     char_name = row[1]
-                available_points[server_id][char_user] = int(message.content)
+                    stat_points = int(row[2])
+                    char_id = row[3]
+                stat_points = int(message.content) + stat_points
+                result = await commit_sql("""UPDATE CharacterProfiles SET StatPoints=%s WHERE Id=%s;""",(str(stat_points),str(char_id)))
                 await direct_message(message, "You have granted " + char_name + " " + message.content + " points to spend.")
-                await dm_tracker[message.author.id]["commandchannel"].send("" + char_name + ", played by <@" + str(char_user) + ">, has been granted " + message.content + " stat points to spend!\n\n")
+                await dm_tracker[message.author.id]["commandchannel"].send(">>> " + char_name + ", played by <@" + str(char_user) + ">, has been granted " + message.content + " stat points to spend!\n\n")
                 return
         elif current_command == 'givexp':
             if current_field == 0:
@@ -1396,17 +1475,21 @@ async def on_message(message):
                 total_xp = current_xp + granted_xp
                 if total_xp > (guild_settings[server_id]["XPLevelRatio"] * level):
                     level = level + 1
-                    available_points[server_id][char_user] = int(level * 10)
-                    response = "**" + char_name + "** LEVELED UP TO LEVEL **" + str(level) + "!**\nYou have " + str(int(available_points[server_id][char_user])) + " stat points to spend!\n\n"
+                    records = await select_sql("""SELECT StatPoints FROM CharacterProfiles WHERE Id=%s;""",(str(char_user),))
+                    for row in records:
+                        stat_points = int(row[0])
+                        
+                    available_points = int(level * 10) + stat_points
+                    response = "**" + char_name + "** LEVELED UP TO LEVEL **" + str(level) + "!**\nYou have " + str(int(available_points)) + " stat points to spend!\n\n"
                     total_xp = 0
                     health = level * guild_settings[server_id]["HealthLevelRatio"]
                     stamina = level * guild_settings[server_id]["StaminaLevelRatio"]
                     mana = level * guild_settings[server_id]["ManaLevelRatio"]
-                result = await commit_sql("""UPDATE CharacterProfiles SET Level=%s,Experience=%s,Health=%s,Stamina=%s,Mana=%s WHERE Id=%s;""",(str(level),str(total_xp),str(health), str(stamina), str(mana), str(char_user)))                
+                result = await commit_sql("""UPDATE CharacterProfiles SET Level=%s,Experience=%s,Health=%s,Stamina=%s,Mana=%s,StatPoints=%s WHERE Id=%s;""",(str(level),str(total_xp),str(health), str(stamina), str(mana), str(available_points), str(char_user)))                
                 
                 
                 await direct_message(message, "You have granted " + char_name + " " + message.content + " experience points.")
-                await dm_tracker[message.author.id]["commandchannel"].send("" + char_name + ", played by <@" + str(char_user) + ">, has been granted " + message.content + " experience points!\n\n")
+                await dm_tracker[message.author.id]["commandchannel"].send(">>> " + char_name + ", played by <@" + str(char_user) + ">, has been granted " + message.content + " experience points!\n\n")
                 try:
                     response
                     await dm_tracker[message.author.id]["commandchannel"].send(response)
@@ -1464,7 +1547,7 @@ async def on_message(message):
                 result = await commit_sql("""UPDATE CharacterArmaments SET """+ target_slot + """=%s WHERE CharacterId=%s""",(field_dict[1],field_dict[0]))
                 if result:
                     await direct_message(message, char_name + " now has equipped " + arm_name +" in the " + message.content)
-                    await dm_tracker[message.author.id]["commandchannel"].send("" + char_name + " now has equipped " + arm_name +" in the " + message.content)
+                    await dm_tracker[message.author.id]["commandchannel"].send(">>> " + char_name + " now has equipped " + arm_name +" in the " + message.content)
                 else:
                     await direct_message(mesage, "Database error!")
                 return
@@ -1524,7 +1607,7 @@ async def on_message(message):
                 result = await commit_sql("""UPDATE CharacterArmaments SET """+ message.content + "Id=%s WHERE CharacterId=%s;",('0',field_dict[0]))
                 if result:
                     await direct_message(message, "Unequipped the " + message.content + " slot.")
-                    await dm_tracker[message.author.id]["commandchannel"].send("Unequipped " + message.content + " slot.")
+                    await dm_tracker[message.author.id]["commandchannel"].send(">>> Unequipped " + message.content + " slot.")
                 else:
                     await direct_message(message, "Database error!")
                 return
@@ -1588,7 +1671,7 @@ async def on_message(message):
                         await direct_message(message, "Database error!")
                         return
                     await direct_message(message, char_name + " traded to " + target_name + " with mun of <@" + str(target_user) + ">.")
-                    await dm_tracker[message.author.id]["commandchannel"].send("" + char_name + " traded to " + target_name + " with mun of <@" + str(target_user) + ">.")                        
+                    await dm_tracker[message.author.id]["commandchannel"].send(">>> " + char_name + " traded to " + target_name + " with mun of <@" + str(target_user) + ">.")                        
                 else:
                     await reply_message(message, "You don't own this item!")
                 await initialize_dm(message.author.id)    
@@ -1652,7 +1735,7 @@ async def on_message(message):
                         await direct_message(message, "Database error!")
                         return
                     await direct_message(message, char_name + " traded to " + target_name + " with mun of <@" + str(target_user) + ">.")
-                    await dm_tracker[message.author.id]["commandchannel"].send("" + char_name + " traded to " + target_name + " with mun of <@" + str(target_user) + ">.")                        
+                    await dm_tracker[message.author.id]["commandchannel"].send(">>> " + char_name + " traded to " + target_name + " with mun of <@" + str(target_user) + ">.")                        
                 else:
                     await reply_message(message, "You don't own this item!")
                 await initialize_dm(message.author.id)    
@@ -1675,7 +1758,7 @@ async def on_message(message):
                 result = await commit_sql("""INSERT INTO Inventory (ServerId, UserId, CharacterId, EquipmentId) VALUES (%s, %s, %s, %s);""", (str(dm_tracker[message.author.id]["server_id"]), str(message.author.id), dm_tracker[message.author.id]["fielddict"][0], message.content))
                 if result:
                     await reply_message(message, char_name + " can now use the item " + item_name + "!")
-                    await dm_tracker[message.author.id]["commandchannel"].send("" + char_name + " can now use the item " + item_name + "!")
+                    await dm_tracker[message.author.id]["commandchannel"].send(">>> " + char_name + " can now use the item " + item_name + "!")
                 else:
                     await reply_message(message, "Database error!") 
         elif current_command == 'givearmament':
@@ -1696,7 +1779,7 @@ async def on_message(message):
                 result = await commit_sql("""INSERT INTO ArmamentInventory (ServerId, UserId, CharacterId, ArmamentId) VALUES (%s, %s, %s, %s);""", (str(dm_tracker[message.author.id]["server_id"]), str(message.author.id), dm_tracker[message.author.id]["fielddict"][0], message.content))
                 if result:
                     await reply_message(message, char_name + " can now use the armament " + item_name + "!")
-                    await dm_tracker[message.author.id]["commandchannel"].send("" + char_name + " can now use the armament " + item_name + "!")
+                    await dm_tracker[message.author.id]["commandchannel"].send(">>> " + char_name + " can now use the armament " + item_name + "!")
                 else:
                     await reply_message(message, "Database error!") 
         elif current_command == 'givespell':
@@ -1722,7 +1805,7 @@ async def on_message(message):
                     
                 if result:
                     await direct_message(message, char_name + " can now use the spell " + spell_name + "!")
-                    await dm_tracker[message.author.id]["commandchannel"].send("" + char_name + " can now use the spell " + spell_name + "!")
+                    await dm_tracker[message.author.id]["commandchannel"].send(">>> " + char_name + " can now use the spell " + spell_name + "!")
                     
                 else:
                     await direct_message(message, "Database error!")
@@ -1754,7 +1837,7 @@ async def on_message(message):
                     
                 if result:
                     await direct_message(message, char_name + " can no longer use the spell " + spell_name + "!")
-                    await dm_tracker[message.author.id]["commandchannel"].send("" + char_name + " can no longer uae the spell " + spell_name + "!")
+                    await dm_tracker[message.author.id]["commandchannel"].send(">>> " + char_name + " can no longer uae the spell " + spell_name + "!")
                 else:
                     await direct_message(message, "Database error!")
                 await initialize_dm(message.author.id)
@@ -1783,7 +1866,7 @@ async def on_message(message):
                     
                 if result:
                     await direct_message(message, char_name + " can now use the melee " + melee_name + "!")
-                    await dm_tracker[message.author.id]["commandchannel"].send("" + char_name + " can now use the melee " + melee_name + "!")
+                    await dm_tracker[message.author.id]["commandchannel"].send(">>> " + char_name + " can now use the melee " + melee_name + "!")
                 else:
                     await direct_message(message, "Database error!")
                 await initialize_dm(message.author.id)
@@ -1804,44 +1887,47 @@ async def on_message(message):
                 result = await commit_sql("""UPDATE CharacterProfiles SET UserId=%s WHERE Id=%s;""",(message.content, field_dict[0]))
                 if result:
                     await direct_message(message, "Character owner updated.")
-                    await dm_tracker[message.author.id]["commandchannel"].send("Character ID " + field_dict[0] + " updated to be owned by <@" + message.content + ">")
+                    await dm_tracker[message.author.id]["commandchannel"].send(">>> Character ID " + field_dict[0] + " updated to be owned by <@" + message.content + ">")
                 else:
                     await direct_message("Database error!")
             
         elif current_command == 'addstatpoints':
-            if current_field == 0:
-                dm_tracker[message.author.id]["fielddict"].append(message.content)
-                await direct_message(message, "Please enter a statistic to modify (Attack, MagicAttack, Defense, Agility, Intellect, Charisma):")
-                dm_tracker[message.author.id]["currentfield"] = 1
-                return
+
             if current_field == 1:
                 dm_tracker[message.author.id]["fielddict"].append(message.content)
                 if not re.search(r"Attack|MagicAttack|Defense|Agility|Intellect|Charisma", message.content):
                     await direct_message(message, "Invalid field! Please try again.")
                     return
-                await direct_message(message, "Please enter the number of points to add (current number of points **" + str(available_points[dm_tracker[message.author.id]["server_id"]][message.author.id]) + "**):")
+                await direct_message(message, "Please enter the number of points to add (current number of points **" + str(dm_tracker[message.author.id]["parameters"]) + "**):")
                 dm_tracker[message.author.id]["currentfield"] = 2  
+                return
+            if current_field == 0:
+                records = await select_sql("""SELECT StatPoints FROM CharacterProfiles WHERE Id=%s;""",(str(message.content),))
+                for row in records:
+                    stat_points = int(row[0])
+                dm_tracker[message.author.id]["parameters"] = stat_points    
+                dm_tracker[message.author.id]["fielddict"].append(message.content)
+                await direct_message(message, "Please enter a statistic to modify (Attack, MagicAttack, Defense, Agility, Intellect, Charisma):")
+                dm_tracker[message.author.id]["currentfield"] = 1
                 return
             if current_field == 2:
                 points = int(message.content)
-                
-                if points > available_points[dm_tracker[message.author.id]["server_id"]][message.author.id]:
-                    await direct_message(message, "You don't have that many points! Please enter a number less than " + str(available_points[dm_tracker[message.author.id]["server_id"]][message.author.id]))
+                if points > int(dm_tracker[message.author.id]["parameters"]):
+                    await direct_message(message, "You don't have that many points! Please enter a number less than " + str(dm_tracker[message.author.id]["parameters"]))
                     return
                 records = await select_sql("SELECT " + field_dict[1] + " FROM CharacterProfiles WHERE Id=%s;", (str(field_dict[0]),))
                 for row in records:
                     current_stat = int(row[0])
                 
-                result = await commit_sql("UPDATE CharacterProfiles SET " + field_dict[1] + "=%s WHERE Id=%s;", (str(points + current_stat), str(field_dict[0])))
+                result = await commit_sql("UPDATE CharacterProfiles SET " + field_dict[1] + "=%s,StatPoints=%s WHERE Id=%s;", (str(points + current_stat), str(dm_tracker[message.author.id]["parameters"] - int(points)), str(field_dict[0])))
                 if result:
                     response = "Character successfully added " + str(points) + " to " + field_dict[1] + "."
-                    available_points[dm_tracker[message.author.id]["server_id"]][message.author.id] = available_points[dm_tracker[message.author.id]["server_id"]][message.author.id] - points
+                    dm_tracker[message.author.id]["parameters"] = dm_tracker[message.author.id]["parameters"] - int(points)
                     await direct_message(message, response)
-                    await dm_tracker[message.author.id]["commandchannel"].send("" + response)
+                    await dm_tracker[message.author.id]["commandchannel"].send(">>> " + response)
                 else:
                     await direct_message(message, "Database error!")
-                return
-               
+                return               
         elif current_command == 'takecurrency':
             if current_field == 0:
                 dm_tracker[message.author.id]["fielddict"].append(message.content)
@@ -1868,7 +1954,7 @@ async def on_message(message):
                     result2 = await commit_sql("""UPDATE GuildSettings SET GuildBankBalance=%s WHERE ServerId=%s;""",(str(new_bank),str(dm_tracker[message.author.id]["server_id"])))
                     if result2:
                         await direct_message(message, "Character now has a thinner wallet!")
-                        await dm_tracker[message.author.id]["commandchannel"].send("Character now has a fatter wallet!")
+                        await dm_tracker[message.author.id]["commandchannel"].send(">>> Character now has a fatter wallet!")
                     else:
                         await direct_message(message, "Database error!")
                 else:
@@ -1899,7 +1985,7 @@ async def on_message(message):
                     result2 = await commit_sql("""UPDATE GuildSettings SET GuildBankBalance=%s WHERE ServerId=%s;""",(str(new_bank),str(dm_tracker[message.author.id]["server_id"])))
                     if result2:
                         await direct_message(message, "Character now has a fatter wallet!")
-                        await dm_tracker[message.author.id]["commandchannel"].send("Character now has a fatter wallet!")
+                        await dm_tracker[message.author.id]["commandchannel"].send(">>> Character now has a fatter wallet!")
                     else:
                         await direct_message(message, "Database error!")
                 else:
@@ -1930,7 +2016,7 @@ async def on_message(message):
                     
                 if result:
                     await direct_message(message, char_name + " can no longer use the melee " + melee_name + "!")
-                    await dm_tracker[message.author.id]["commandchannel"].send("" + char_name + " can no longer uae the melee " + melee_name + "!")
+                    await dm_tracker[message.author.id]["commandchannel"].send(">>> " + char_name + " can no longer uae the melee " + melee_name + "!")
                 else:
                     await direct_message(message, "Database error!")
                 await initialize_dm(message.author.id)    
@@ -1986,10 +2072,56 @@ async def on_message(message):
                                     if re.search(r"Attack|MagicAttack|Agility",arm_row[2]):
                                         mass_spar_chars[server_id][user_id][arm_row[2]] = mass_spar_chars[server_id][user_id][arm_row[2]] + int(arm_row[3])
                                         await log_message("applying " + str(arm_row[3]) + " to " + str(arm_row[2]))
-            await dm_tracker[message.author.id]["commandchannel"].send("" + message.author.name + " successfully set party character to " + char_name + ".")
+            await dm_tracker[message.author.id]["commandchannel"].send(">>> " + message.author.name + " successfully set party character to " + char_name + ".")
             await direct_message(message, "You successfully set your spar character to " + char_name)
             await initialize_dm(message.author.id)
             return
+        elif current_command == 'disarm':
+            if dm_tracker[message.author.id]["currentfield"] == 0:
+                dm_tracker[message.author.id]["fielddict"].append(message.content)
+                
+                records = await select_sql("SELECT IFNULL(LeftHandId,'None'),IFNULL(RightHandId,'None') FROM CharacterArmaments Where CharacterId=%s;", (message.content,))
+                if not records:
+                    await direct_message(message, "That character has no armaments equipped!")
+                    return
+                for row in records:
+                    left_hand = row[0]
+                    right_hand = row[1]
+                if left_hand == 'None' and right_hand == 'None':
+                    await direct_message(message, "That character has no armaments equipped!")
+                    return
+                records = await select_sql("""SELECT ArmamentName FROM Armaments WHERE Id=%s;""", (left_hand,))
+                for row in records:
+                    left_name = row[0]
+                records = await select_sql("""SELECT ArmamentName FROM Armaments WHERE Id=%s;""", (right_hand,))
+                for row in records:
+                    right_name = row[0]
+                try: left_name
+                except: left_name = 'None'
+                try: right_name
+                except: right_name = 'None'
+                menu = "Armaments Equipped:\n\n" + left_hand + " - " + left_name + "\n" + right_hand + " - " + right_name
+                response = "Select an armament to disarm:\n\n" + menu
+                await direct_message(message, response) 
+                dm_tracker[message.author.id]["currentfield"] = 1
+                return
+            elif dm_tracker[message.author.id]["currentfield"] == 1:
+                dm_tracker[message.author.id]["fielddict"].append(message.content)
+                chance_of_disarm = random.randint(0,100)
+                if chance_of_disarm >= 60:
+                    result = await commit_sql("""DELETE FROM CharacterArmaments WHERE CharacterId=%s AND (LeftHandId=%s OR RightHandId=%s);""",(str(dm_tracker[message.author.id]["fielddict"][0]),str(dm_tracker[message.author.id]["fielddict"][1]),str(dm_tracker[message.author.id]["fielddict"][1])))
+                    await direct_message(message, "Character disarmed!")
+                    await dm_tracker[message.author.id]["commandchannel"].send(">>> Character <@" + str(dm_tracker[message.author.id]["parameters"][int(dm_tracker[message.author.id]["fielddict"][0])]) +  "> has had an armament disarmed!")
+                    
+                else:
+                    await direct_message(message, "Character disarm failed!")
+                    await dm_tracker[message.author.id]["commandchannel"].send(">>> You were unable to disarm anyone!")
+                if mass_spar_turn[server_id] > len(mass_spar_chars[server_id]) - 2:
+                    mass_spar_turn[server_id] = 0
+                else:
+                    mass_spar_turn[server_id] = mass_spar_turn[server_id] + 1
+                await dm_tracker[message.author.id]["commandchannel"].send(">>> <@" + str(list(mass_spar[server_id])[mass_spar_turn[server_id]].id) + ">, it is your turn!")
+                return                
         elif current_command == 'weaponspar':
             if dm_tracker[message.author.id]["currentfield"] == 0:
                 char_map = {} 
@@ -2007,7 +2139,7 @@ async def on_message(message):
             elif dm_tracker[message.author.id]["currentfield"] == 1:
                 user_id = message.author.id
                 target_id = dm_tracker[message.author.id]["parameters"][int(message.content)]
-            records = await select_sql("""SELECT Id,ArmamentName,MinimumLevel,DamageMin,DamageMax,PictureLink FROM Armaments WHERE Id=%s;""",(field_dict[0],))
+            records = await select_sql("""SELECT Id,ArmamentName,MinimumLevel,DamageMin,DamageMax,StatusChange,StatusChangedBy,PictureLink FROM Armaments WHERE Id=%s;""",(field_dict[0],))
             if not records:
                 await reply_message(message, "That's not a armament. Try again.")
                 return
@@ -2018,7 +2150,9 @@ async def on_message(message):
                     min_level = int(row[2])
                     damage_min = int(row[3])
                     damage_max = int(row[4])
-                    picture_link = row[5]
+                    status_change = row[5]
+                    status_changed_by = int(row[6])
+                    picture_link = row[7]
                 if (min_level > mass_spar_chars[server_id][user_id]["Level"]):
                     await direct_message(message, "You're not a high enough level for this armament. How did you even get it?")
                     return
@@ -2030,7 +2164,7 @@ async def on_message(message):
                 await dm_tracker[message.author.id]["commandchannel"].send(embed=embed)
                 await asyncio.sleep(1)
 #                await post_webhook(dm_tracker[message.author.id]["commandchannel"], mass_spar_chars[server_id][user_id]["CharName"], attack_text, mass_spar_chars[server_id][user_id]["PictureLink"])
-#                await dm_tracker[message.author.id]["commandchannel"].send("" + str(mass_spar_chars[server_id][user_id]["CharName"]) + " attacks " + str(mass_spar_chars[server_id][target_id]["CharName"]) + " with " + arm_name + "!\n")
+#                await dm_tracker[message.author.id]["commandchannel"].send(">>> " + str(mass_spar_chars[server_id][user_id]["CharName"]) + " attacks " + str(mass_spar_chars[server_id][target_id]["CharName"]) + " with " + arm_name + "!\n")
                 dodge = await calculate_dodge(mass_spar_chars[server_id][user_id]["Level"], mass_spar_chars[server_id][user_id]["Agility"])
                 if dodge:
                     dodge_text = mass_spar_chars[server_id][target_id]["CharName"] + " dodged the attack! No damage taken!"
@@ -2044,13 +2178,17 @@ async def on_message(message):
                     damage = await calculate_damage(random.randint(damage_min, damage_max), mass_spar_chars[server_id][target_id]["Defense"], 1, mass_spar_chars[server_id][user_id]["Level"], mass_spar_chars[server_id][target_id]["Level"])
                     mass_spar_chars[server_id][target_id]["Health"] = mass_spar_chars[server_id][target_id]["Health"] - damage
                     mass_spar_chars[server_id][user_id]["TotalDamage"] = mass_spar_chars[server_id][user_id]["TotalDamage"] + damage
+                    if status_change != 'None':
+                        result = await commit_sql("""UPDATE CharacterProfiles SET Status=%s WHERE Id=%s;""",(str(status_change + '=' + str(status_changed_by)),str(mass_spar_chars[server_id][target_id]["CharId"])))
+                        embed2 = discord.Embed(title=mass_spar_chars[server_id][target_id]["CharName"] + " has been " + status_change + "!")
+                        await dm_tracker[message.author.id]["commandchannel"].send(embed=embed2)                    
                     hit_text = "" + mass_spar_chars[server_id][target_id]["CharName"] + " was hit by " + mass_spar_chars[server_id][user_id]["CharName"] + " for " + str(damage) + " points!\n\nHealth now at " + str(mass_spar_chars[server_id][target_id]["Health"]) + "!"
                     embed = discord.Embed(title=hit_text)
                     embed.set_thumbnail(url=mass_spar_chars[server_id][target_id]["PictureLink"])
                     await dm_tracker[message.author.id]["commandchannel"].send(embed=embed)  
                     await asyncio.sleep(1)                    
 #                    await post_webhook(dm_tracker[message.author.id]["commandchannel"], mass_spar_chars[server_id][target_id]["CharName"], hit_text, mass_spar_chars[server_id][target_id]["PictureLink"])
-#                    await dm_tracker[message.author.id]["commandchannel"].send("" + mass_spar_chars[server_id][target_id]["CharName"] + " was hit by " + mass_spar_chars[server_id][user_id]["CharName"] + " for " + str(damage) + " points!\n\nHealth now at " + str(mass_spar_chars[server_id][target_id]["Health"]))
+#                    await dm_tracker[message.author.id]["commandchannel"].send(">>> " + mass_spar_chars[server_id][target_id]["CharName"] + " was hit by " + mass_spar_chars[server_id][user_id]["CharName"] + " for " + str(damage) + " points!\n\nHealth now at " + str(mass_spar_chars[server_id][target_id]["Health"]))
                     if mass_spar_chars[server_id][target_id]["Health"] < 1:
                         fallen_text = mass_spar_chars[server_id][target_id]["CharName"] + " has no health left and is out of the fight!"
                         embed = discord.Embed(title=fallen_text)
@@ -2084,29 +2222,36 @@ async def on_message(message):
                         except: old_xp = 0                            
                         total_xp = old_xp + new_xp
                         if total_xp > (guild_settings[server_id]["XPLevelRatio"] * fallen_chars[server_id][char]["Level"]):
+                            if fallen_chars[server_id][char]["CharId"] == 0:
+                                continue                        
                             fallen_chars[server_id][char]["Level"] = fallen_chars[server_id][char]["Level"] + 1
-                            available_points[server_id][char] = int(fallen_chars[server_id][char]["Level"] * 10)
-                            response = response + "**" + fallen_chars[server_id][char]["CharName"] + "** LEVELED UP TO LEVEL **" + str(fallen_chars[server_id][char]["Level"]) + "!**\nYou have " + str(int(fallen_chars[server_id][char]["Level"]*10)) + " stat points to spend!\n\n"
+                            records = await select_sql("""SELECT StatPoints FROM CharacterProfiles WHERE Id=%s;""",(str(fallen_chars[server_id][char]["CharId"]),))
+                            for row in records:
+                                stat_points = int(row[0])
+                                
+                            available_points = int(fallen_chars[server_id][char]["Level"] * 10) + stat_points                            
+
+                            response = response + "**" + fallen_chars[server_id][char]["CharName"] + "** LEVELED UP TO LEVEL **" + str(fallen_chars[server_id][char]["Level"]) + "!**\nYou have " + str(available_points) + " stat points to spend!\n\n"
                             total_xp = 0
                             health = fallen_chars[server_id][user_id]["Level"] * guild_settings[server_id]["HealthLevelRatio"]
                             stamina = fallen_chars[server_id][user_id]["Level"] * guild_settings[server_id]["StaminaLevelRatio"]
                             mana = fallen_chars[server_id][user_id]["Level"] * guild_settings[server_id]["ManaLevelRatio"]
-                            result = await commit_sql("""UPDATE CharacterProfiles SET Level=%s,Experience=%s,Health=%s,Stamina=%s,Mana=%s WHERE Id=%s;""",(str(fallen_chars[server_id][target_id]["Level"]),str(total_xp),str(health), str(stamina), str(mana), str(fallen_chars[server_id][target_id]["CharId"])))
+                            result = await commit_sql("""UPDATE CharacterProfiles SET Level=%s,Experience=%s,Health=%s,Stamina=%s,Mana=%s,StatPoints=%s WHERE Id=%s;""",(str(fallen_chars[server_id][target_id]["Level"]),str(total_xp),str(health), str(stamina), str(mana), str(available_points), str(fallen_chars[server_id][target_id]["CharId"])))
                         else:
                             result = await commit_sql("""UPDATE CharacterProfiles SET Experience=%s WHERE Id=%s;""",(str(total_xp), str(fallen_chars[server_id][target_id]["CharId"])))                        
                     mass_spar_event[server_id] = False
                     
-                    embed = discord.Embed(title="Results",description=reponse)
+                    embed = discord.Embed(title="Results",description=response)
                     await dm_tracker[message.author.id]["commandchannel"].send(embed=embed)
                     await asyncio.sleep(1)                    
-                    # await dm_tracker[message.author.id]["commandchannel"].send("" + response)
+                    # await dm_tracker[message.author.id]["commandchannel"].send(">>> " + response)
                     return
                             
                 if mass_spar_turn[server_id] > len(mass_spar_chars[server_id]) - 2:
                     mass_spar_turn[server_id] = 0
                 else:
                     mass_spar_turn[server_id] = mass_spar_turn[server_id] + 1
-                await dm_tracker[message.author.id]["commandchannel"].send("<@" + str(list(mass_spar[server_id])[mass_spar_turn[server_id]].id) + ">, it is your turn!")
+                await dm_tracker[message.author.id]["commandchannel"].send(">>> <@" + str(list(mass_spar[server_id])[mass_spar_turn[server_id]].id) + ">, it is your turn!")
                 if mass_spar[server_id][mass_spar_turn[server_id]] == client.user:
                     picker = random.randint(1,2)
                     if picker == 1:
@@ -2114,7 +2259,7 @@ async def on_message(message):
                     else:
                         await ai_meleespar(message)
                     mass_spar_turn[server_id] = mass_spar_turn[server_id] = 0
-                    await dm_tracker[message.author.id]["commandchannel"].send("<@" + str(list(mass_spar[server_id])[mass_spar_turn[server_id]].id) + ">, it is your turn!")
+                    await dm_tracker[message.author.id]["commandchannel"].send(">>> <@" + str(list(mass_spar[server_id])[mass_spar_turn[server_id]].id) + ">, it is your turn!")
                 await initialize_dm(message.author.id)   
             return
         elif current_command == 'weaponmonster':
@@ -2143,7 +2288,7 @@ async def on_message(message):
             await dm_tracker[message.author.id]["commandchannel"].send(embed=embed) 
             await asyncio.sleep(1)
  #           await post_webhook(dm_tracker[message.author.id]["commandchannel"], server_party_chars[server_id][user_id]["CharName"], attack_text, server_party_chars[server_id][user_id]["PictureLink"])
-#            await dm_tracker[message.author.id]["commandchannel"].send("" + str(server_party_chars[server_id][user_id]["CharName"]) + " attacks " + str(server_monsters[server_id]["MonsterName"]) + " with " + arm_name + "!")
+#            await dm_tracker[message.author.id]["commandchannel"].send(">>> " + str(server_party_chars[server_id][user_id]["CharName"]) + " attacks " + str(server_monsters[server_id]["MonsterName"]) + " with " + arm_name + "!")
                   
             dodge = await calculate_dodge(server_monsters[server_id]["Level"], server_party_chars[server_id][user_id]["Agility"])
             if dodge:
@@ -2153,11 +2298,11 @@ async def on_message(message):
                 await dm_tracker[message.author.id]["commandchannel"].send(embed=embed)  
                 await asyncio.sleep(1)
 #                await post_webhook(dm_tracker[message.author.id]["commandchannel"], server_monsters[server_id]["MonsterName"], dodge_text, server_monsters[server_id]["PictureLink"])
-               #  await dm_tracker[message.author.id]["commandchannel"].send("" + server_monsters[server_id]["MonsterName"] + " dodged the attack! No damage taken!")
+               #  await dm_tracker[message.author.id]["commandchannel"].send(">>> " + server_monsters[server_id]["MonsterName"] + " dodged the attack! No damage taken!")
             else:
                 damage = await calculate_damage(random.randint(damage_min, damage_max), server_monsters[server_id]["Defense"], 1, server_party_chars[server_id][user_id]["Level"], server_monsters[server_id]["Level"])
                 server_monsters[server_id]["Health"] = int(server_monsters[server_id]["Health"] - damage)
-                # await dm_tracker[message.author.id]["commandchannel"].send("" + server_monsters[server_id]["MonsterName"] + " was hit by " + server_party_chars[server_id][user_id]["CharName"] + " for " + str(damage) + " points!\n\nHealth now at " + str(server_monsters[server_id]["Health"]))
+                # await dm_tracker[message.author.id]["commandchannel"].send(">>> " + server_monsters[server_id]["MonsterName"] + " was hit by " + server_party_chars[server_id][user_id]["CharName"] + " for " + str(damage) + " points!\n\nHealth now at " + str(server_monsters[server_id]["Health"]))
                 hit_text = "" + server_monsters[server_id]["MonsterName"] + " was hit by " + server_party_chars[server_id][user_id]["CharName"] + " for " + str(damage) + " points!\n\nHealth now at " + str(server_monsters[server_id]["Health"]) + "!"
                 embed = discord.Embed(title=hit_text)
                 embed.set_thumbnail(url=server_monsters[server_id]["PictureLink"])
@@ -2171,10 +2316,10 @@ async def on_message(message):
                     await dm_tracker[message.author.id]["commandchannel"].send(embed=embed)  
                     await asyncio.sleep(1)
                    # await post_webhook(dm_tracker[message.author.id]["commandchannel"], server_monsters[server_id]["MonsterName"], hit_text, server_monsters[server_id]["PictureLink"])
-                   # await dm_tracker[message.author.id]["commandchannel"].send("" + server_monsters[server_id]["MonsterName"] + " has no health left and is out of the fight!")
+                   # await dm_tracker[message.author.id]["commandchannel"].send(">>> " + server_monsters[server_id]["MonsterName"] + " has no health left and is out of the fight!")
                     currency_earned = random.randint(1, server_monsters[dm_tracker[message.author.id]["server_id"]]["MaxCurrencyDrop"]) / len(server_party)
                     server_encounters[server_id] = False
-                    await dm_tracker[message.author.id]["commandchannel"].send("Victory!")
+                    await dm_tracker[message.author.id]["commandchannel"].send(">>> Victory!")
                     response = "**Experience gained:**\n\n"
                     for user in server_party_chars[server_id].keys():
                         char_id = server_party_chars[server_id][user]["CharId"]
@@ -2190,19 +2335,23 @@ async def on_message(message):
                         result = await commit_sql("""UPDATE CharacterProfiles SET CURRENCY=%s WHERE Id=%s;""",(str(server_party_chars[server_id][user_id]["Currency"]), str(server_party_chars[server_id][user]["CharId"])))                        
                         if total_xp > (guild_settings[server_id]["XPLevelRatio"] * server_party_chars[server_id][user]["Level"]):
                             server_party_chars[server_id][user]["Level"] = server_party_chars[server_id][user]["Level"] + 1
-                            available_points[server_id][user] = int(server_party_chars[server_id][user]["Level"] * 10)
-                            response = response + "**" + server_party_chars[server_id][user]["CharName"] + "** LEVELED UP TO LEVEL **" + str(server_party_chars[server_id][user]["Level"]) + "!**\nYou have " + str(int(server_party_chars[server_id][user]["Level"]*10)) + " stat points to spend!\n\n"
+                            records = await select_sql("""SELECT StatPoints FROM CharacterProfiles WHERE Id=%s;""",(str(server_party_chars[server_id][user]["CharId"]),))
+                            for row in records:
+                                stat_points = int(row[0])
+                                
+                            available_points = int(server_party_chars[server_id][user]["Level"] * 10) + stat_points
+                            response = response + "**" + server_party_chars[server_id][user]["CharName"] + "** LEVELED UP TO LEVEL **" + str(server_party_chars[server_id][user]["Level"]) + "!**\nYou have " + str(available_points) + " stat points to spend!\n\n"
                             total_xp = 0
                             health = server_party_chars[server_id][user_id]["Level"] * guild_settings[server_id]["HealthLevelRatio"]
                             stamina = server_party_chars[server_id][user_id]["Level"] * guild_settings[server_id]["StaminaLevelRatio"]
                             mana = server_party_chars[server_id][user_id]["Level"] * guild_settings[server_id]["ManaLevelRatio"]
-                            result = await commit_sql("""UPDATE CharacterProfiles SET Level=%s,Experience=%s,Health=%s,Stamina=%s,Mana=%s WHERE Id=%s;""",(str(server_party_chars[server_id][user]["Level"]),str(total_xp),str(health), str(stamina), str(mana), str(server_party_chars[server_id][user]["CharId"])))
+                            result = await commit_sql("""UPDATE CharacterProfiles SET Level=%s,Experience=%s,Health=%s,Stamina=%s,Mana=%s,StatPoints=%s WHERE Id=%s;""",(str(server_party_chars[server_id][user]["Level"]),str(total_xp),str(health), str(stamina), str(mana), str(available_points), str(server_party_chars[server_id][user]["CharId"])))
                         else:
                             result = await commit_sql("""UPDATE CharacterProfiles SET Level=%s,Experience=%s WHERE Id=%s;""",(str(server_party_chars[server_id][user]["Level"]),str(total_xp), str(server_party_chars[server_id][user]["CharId"])))
                     embed = discord.Embed(title="Results",description=response)
                     await dm_tracker[message.author.id]["commandchannel"].send(embed=embed)
                     await asyncio.sleep(1)                    
-                   #  await dm_tracker[message.author.id]["commandchannel"].send("" + response)
+                   #  await dm_tracker[message.author.id]["commandchannel"].send(">>> " + response)
                     return
             await monster_attack(message.author.id)
             if not server_encounters[server_id]:
@@ -2211,7 +2360,7 @@ async def on_message(message):
                 encounter_turn[server_id] = 0
             else:
                 encounter_turn[server_id] = encounter_turn[server_id] + 1
-            await dm_tracker[message.author.id]["commandchannel"].send("<@" + str(list(server_party[server_id])[encounter_turn[server_id]].id) + ">, it is your turn!")
+            await dm_tracker[message.author.id]["commandchannel"].send(">>> <@" + str(list(server_party[server_id])[encounter_turn[server_id]].id) + ">, it is your turn!")
             return
         elif current_command == 'meleemonster':
             user_id = message.author.id
@@ -2241,7 +2390,7 @@ async def on_message(message):
             await direct_message(message, "Attacking the monster with " + attack_name + ".")
             server_party_chars[server_id][user_id]["Stamina"] = server_party_chars[server_id][user_id]["Stamina"] - stamina_cost
             
-            # await dm_tracker[message.author.id]["commandchannel"].send("" + str(server_party_chars[server_id][user_id]["CharName"]) + " attacks " + str(server_monsters[server_id]["MonsterName"]) + " with " + attack_name + "!\nThis drained " + str(stamina_cost) + " from " + server_party_chars[server_id][user_id]["CharName"] + ", leaving them with " + str(server_party_chars[server_id][user_id]["Stamina"]) + " stamina!")
+            # await dm_tracker[message.author.id]["commandchannel"].send(">>> " + str(server_party_chars[server_id][user_id]["CharName"]) + " attacks " + str(server_monsters[server_id]["MonsterName"]) + " with " + attack_name + "!\nThis drained " + str(stamina_cost) + " from " + server_party_chars[server_id][user_id]["CharName"] + ", leaving them with " + str(server_party_chars[server_id][user_id]["Stamina"]) + " stamina!")
             attack_text = "" + str(server_party_chars[server_id][user_id]["CharName"]) + " attacks " + str(server_monsters[server_id]["MonsterName"]) + " with " + attack_name + "!\nThis drained " + str(stamina_cost) + " from " + server_party_chars[server_id][user_id]["CharName"] + ", leaving them with " + str(server_party_chars[server_id][user_id]["Stamina"]) + " stamina!\n"
             embed = discord.Embed(title=attack_text)
             if picture_link.startswith('http'):
@@ -2257,11 +2406,11 @@ async def on_message(message):
                 await dm_tracker[message.author.id]["commandchannel"].send(embed=embed) 
                 await asyncio.sleep(1)                
 #                await post_webhook(dm_tracker[message.author.id]["commandchannel"], server_monsters[server_id]["MonsterName"], dodge_text, server_monsters[server_id]["PictureLink"])
-               # await dm_tracker[message.author.id]["commandchannel"].send("" + server_monsters[server_id]["MonsterName"] + " dodged the attack! No damage taken!")
+               # await dm_tracker[message.author.id]["commandchannel"].send(">>> " + server_monsters[server_id]["MonsterName"] + " dodged the attack! No damage taken!")
             else:
                 damage = await calculate_damage(server_party_chars[server_id][user_id]["Attack"], server_monsters[server_id]["Defense"], damage_multiplier, server_party_chars[server_id][user_id]["Level"], server_monsters[server_id]["Level"])
                 server_monsters[server_id]["Health"] = int(server_monsters[server_id]["Health"] - damage)
-                #await dm_tracker[message.author.id]["commandchannel"].send("" + server_monsters[server_id]["MonsterName"] + " was hit by " + server_party_chars[server_id][user_id]["CharName"] + " for " + str(damage) + " points!\n\nHealth now at " + str(server_monsters[server_id]["Health"]))
+                #await dm_tracker[message.author.id]["commandchannel"].send(">>> " + server_monsters[server_id]["MonsterName"] + " was hit by " + server_party_chars[server_id][user_id]["CharName"] + " for " + str(damage) + " points!\n\nHealth now at " + str(server_monsters[server_id]["Health"]))
                 hit_text = "" + server_monsters[server_id]["MonsterName"] + " was hit by " + server_party_chars[server_id][user_id]["CharName"] + " for " + str(damage) + " points!\n\nHealth now at " + str(server_monsters[server_id]["Health"])
                 embed = discord.Embed(title=hit_text)
                 embed.set_thumbnail(url=server_monsters[server_id]["PictureLink"])
@@ -2275,10 +2424,10 @@ async def on_message(message):
                     await dm_tracker[message.author.id]["commandchannel"].send(embed=embed) 
                     await asyncio.sleep(1)
                    # await post_webhook(dm_tracker[message.author.id]["commandchannel"], server_monsters[server_id]["MonsterName"], fallen_text, server_monsters[server_id]["PictureLink"])
-                   # await dm_tracker[message.author.id]["commandchannel"].send("" + server_monsters[server_id]["MonsterName"] + " has no health left and is out of the fight!")
+                   # await dm_tracker[message.author.id]["commandchannel"].send(">>> " + server_monsters[server_id]["MonsterName"] + " has no health left and is out of the fight!")
                     currency_earned = random.randint(1, server_monsters[server_id]["MaxCurrencyDrop"]) / len(server_party)
                     server_encounters[server_id] = False
-                    await dm_tracker[message.author.id]["commandchannel"].send("Victory!")
+                    await dm_tracker[message.author.id]["commandchannel"].send(">>> Victory!")
                     response = "**Experience gained:**\n\n"
                     for user in server_party_chars[server_id].keys():
                         char_id = server_party_chars[server_id][user]["CharId"]
@@ -2294,19 +2443,23 @@ async def on_message(message):
                         result = await commit_sql("""UPDATE CharacterProfiles SET CURRENCY=%s WHERE Id=%s;""",(str(server_party_chars[server_id][user]["Currency"]), str(server_party_chars[server_id][user]["CharId"])))                        
                         if total_xp > (guild_settings[server_id]["XPLevelRatio"] * server_party_chars[server_id][user]["Level"]):
                             server_party_chars[server_id][user]["Level"] = server_party_chars[server_id][user]["Level"] + 1
-                            available_points[server_id][user] = int(server_party_chars[server_id][user]["Level"] * 10)
-                            response = response + "**" + server_party_chars[server_id][user]["CharName"] + "** LEVELED UP TO LEVEL **" + str(server_party_chars[server_id][user]["Level"]) + "!**\nYou have " + str(int(server_party_chars[server_id][user]["Level"]*10)) + " stat points to spend!\n\n"
+                            records = await select_sql("""SELECT StatPoints FROM CharacterProfiles WHERE Id=%s;""",(str(server_party_chars[server_id][user]["CharId"]),))
+                            for row in records:
+                                stat_points = int(row[0])
+                                
+                            available_points = int(server_party_chars[server_id][user]["Level"] * 10) + stat_points
+                            response = response + "**" + server_party_chars[server_id][user]["CharName"] + "** LEVELED UP TO LEVEL **" + str(server_party_chars[server_id][user]["Level"]) + "!**\nYou have " + str(int(available_points)) + " stat points to spend!\n\n"
                             total_xp = 0
                             health = server_party_chars[server_id][user_id]["Level"] * guild_settings[server_id]["HealthLevelRatio"]
                             stamina = server_party_chars[server_id][user_id]["Level"] * guild_settings[server_id]["StaminaLevelRatio"]
                             mana = server_party_chars[server_id][user_id]["Level"] * guild_settings[server_id]["ManaLevelRatio"]
-                            result = await commit_sql("""UPDATE CharacterProfiles SET Level=%s,Experience=%s,Health=%s,Stamina=%s,Mana=%s WHERE Id=%s;""",(str(server_party_chars[server_id][user]["Level"]),str(total_xp),str(health), str(stamina), str(mana), str(server_party_chars[server_id][user]["CharId"])))
+                            result = await commit_sql("""UPDATE CharacterProfiles SET Level=%s,Experience=%s,Health=%s,Stamina=%s,Mana=%s,StatPoints=%s WHERE Id=%s;""",(str(server_party_chars[server_id][user]["Level"]),str(total_xp),str(health), str(stamina), str(mana), str(available_points), str(server_party_chars[server_id][user]["CharId"])))
                         else:
                             result = await commit_sql("""UPDATE CharacterProfiles SET Level=%s,Experience=%s WHERE Id=%s;""",(str(server_party_chars[server_id][user]["Level"]),str(total_xp), str(server_party_chars[server_id][user]["CharId"])))
                     embed = discord.Embed(title="Results",description=response)
                     await dm_tracker[message.author.id]["commandchannel"].send(embed=embed)     
                     await asyncio.sleep(1)
-                 #   await dm_tracker[message.author.id]["commandchannel"].send("" + response)
+                 #   await dm_tracker[message.author.id]["commandchannel"].send(">>> " + response)
                     return
             await monster_attack(message.author.id)
             if not server_encounters[server_id]:
@@ -2315,7 +2468,7 @@ async def on_message(message):
                 encounter_turn[server_id] = 0
             else:
                 encounter_turn[server_id] = encounter_turn[server_id] + 1
-            await dm_tracker[message.author.id]["commandchannel"].send("<@" + str(list(server_party[server_id])[encounter_turn[server_id]].id) + ">, it is your turn!")
+            await dm_tracker[message.author.id]["commandchannel"].send(">>> <@" + str(list(server_party[server_id])[encounter_turn[server_id]].id) + ">, it is your turn!")
             return
         elif current_command == 'castmonster':
             user_id = message.author.id
@@ -2361,7 +2514,7 @@ async def on_message(message):
                 await dm_tracker[message.author.id]["commandchannel"].send(embed=embed) 
                 await asyncio.sleep(1)
 #                await post_webhook(dm_tracker[message.author.id]["commandchannel"], server_monsters[server_id]["MonsterName"], dodge_text, server_monsters[server_id]["PictureLink"])
-               # await dm_tracker[user_id]["commandchannel"].send("" + server_monsters[server_id]["MonsterName"] + " dodged the attack! No damage taken!")
+               # await dm_tracker[user_id]["commandchannel"].send(">>> " + server_monsters[server_id]["MonsterName"] + " dodged the attack! No damage taken!")
             else:
                 damage = await calculate_damage(server_party_chars[server_id][user_id]["MagicAttack"], server_monsters[server_id]["Defense"], damage_multiplier, server_party_chars[server_id][user_id]["Level"], server_monsters[server_id]["Level"])
                 server_monsters[server_id]["Health"] = int(server_monsters[server_id]["Health"] - damage)
@@ -2371,18 +2524,18 @@ async def on_message(message):
                 await dm_tracker[message.author.id]["commandchannel"].send(embed=embed)
                 asyncio.sleep(1)                
              #   await post_webhook(dm_tracker[message.author.id]["commandchannel"], server_monsters[server_id]["MonsterName"], hit_text, server_monsters[server_id]["PictureLink"])
-#                await dm_tracker[user_id]["commandchannel"].send("" + server_monsters[server_id]["MonsterName"] + " was hit by " + server_party_chars[server_id][user_id]["CharName"] + " for " + str(damage) + " points!\n\nHealth now at " + str(server_monsters[server_id]["Health"]))
+#                await dm_tracker[user_id]["commandchannel"].send(">>> " + server_monsters[server_id]["MonsterName"] + " was hit by " + server_party_chars[server_id][user_id]["CharName"] + " for " + str(damage) + " points!\n\nHealth now at " + str(server_monsters[server_id]["Health"]))
                 if server_monsters[server_id]["Health"] < 1:
                     fallen_text = "" + server_monsters[server_id]["MonsterName"] + " has no health left and is out of the fight!"
                  #   await post_webhook(dm_tracker[message.author.id]["commandchannel"], server_monsters[server_id]["MonsterName"], hit_text, server_monsters[server_id]["PictureLink"])
-#                    await dm_tracker[message.author.id]["commandchannel"].send("" + server_monsters[server_id]["MonsterName"] + " has no health left and is out of the fight!")
+#                    await dm_tracker[message.author.id]["commandchannel"].send(">>> " + server_monsters[server_id]["MonsterName"] + " has no health left and is out of the fight!")
                     embed = discord.Embed(title=fallen_text)
                     embed.set_thumbnail(url=server_monsters[server_id]["PictureLink"])
                     await dm_tracker[message.author.id]["commandchannel"].send(embed=embed)   
                     await asyncio.sleep(1)                    
                     server_encounters[server_id] = False
                     currency_earned = random.randint(1, server_monsters[server_id]["MaxCurrencyDrop"]) / len(server_party)
-                    await dm_tracker[message.author.id]["commandchannel"].send("Victory!")
+                    await dm_tracker[message.author.id]["commandchannel"].send(">>> Victory!")
                     response = "**Experience gained:**\n\n"
                     for user in server_party_chars[server_id].keys():
                         char_id = server_party_chars[server_id][user]["CharId"]
@@ -2398,18 +2551,22 @@ async def on_message(message):
                         result = await commit_sql("""UPDATE CharacterProfiles SET CURRENCY=%s WHERE Id=%s;""",(str(server_party_chars[server_id][user]["Currency"]), str(server_party_chars[server_id][user]["CharId"])))
                         if total_xp > (guild_settings[server_id]["XPLevelRatio"] * server_party_chars[server_id][user]["Level"]):
                             server_party_chars[server_id][user]["Level"] = server_party_chars[server_id][user]["Level"] + 1
-                            available_points[server_id][user] = int(server_party_chars[server_id][user]["Level"] * 10)
-                            response = response + "**" + server_party_chars[server_id][user]["CharName"] + "** LEVELED UP TO LEVEL **" + str(server_party_chars[server_id][user]["Level"]) + "!**\nYou have " + str(int(server_party_chars[server_id][user]["Level"]*10)) + " stat points to spend!\n\n"
+                            records = await select_sql("""SELECT StatPoints FROM CharacterProfiles WHERE Id=%s;""",(str(server_party_chars[server_id][user]["CharId"]),))
+                            for row in records:
+                                stat_points = int(row[0])
+                                
+                            available_points = int(server_party_chars[server_id][user]["Level"] * 10) + stat_points
+                            response = response + "**" + server_party_chars[server_id][user]["CharName"] + "** LEVELED UP TO LEVEL **" + str(server_party_chars[server_id][user]["Level"]) + "!**\nYou have " + str(available_points) + " stat points to spend!\n\n"
                             health = server_party_chars[server_id][user_id]["Level"] * guild_settings[server_id]["HealthLevelRatio"]
                             stamina = server_party_chars[server_id][user_id]["Level"] * guild_settings[server_id]["StaminaLevelRatio"]
                             mana = server_party_chars[server_id][user_id]["Level"] * guild_settings[server_id]["ManaLevelRatio"]
-                            result = await commit_sql("""UPDATE CharacterProfiles SET Level=%s,Experience=%s,Health=%s,Stamina=%s,Mana=%s WHERE Id=%s;""",(str(server_party_chars[server_id][user]["Level"]),str(total_xp),str(health), str(stamina), str(mana), str(server_party_chars[server_id][user]["CharId"])))
+                            result = await commit_sql("""UPDATE CharacterProfiles SET Level=%s,Experience=%s,Health=%s,Stamina=%s,Mana=%s WHERE Id=%s;""",(str(server_party_chars[server_id][user]["Level"]),str(total_xp),str(health), str(stamina), str(mana), str(available_points), str(server_party_chars[server_id][user]["CharId"])))
                         else:
                             result = await commit_sql("""UPDATE CharacterProfiles SET Level=%s,Experience=%s WHERE Id=%s;""",(str(server_party_chars[server_id][user]["Level"]),str(total_xp), str(server_party_chars[server_id][user]["CharId"])))
                     embed = discord.Embed(title="Results",description=response)
                     await dm_tracker[message.author.id]["commandchannel"].send(embed=embed) 
                     await asyncio.sleep(1)                    
-                  #   await dm_tracker[message.author.id]["commandchannel"].send("" + response)
+                  #   await dm_tracker[message.author.id]["commandchannel"].send(">>> " + response)
                     server_monsters[server_id] = { }
                     return
             await monster_attack(message.author.id)
@@ -2420,7 +2577,7 @@ async def on_message(message):
                 encounter_turn[server_id] = 0
             else:
                 encounter_turn[server_id] = encounter_turn[server_id] + 1
-            await dm_tracker[message.author.id]["commandchannel"].send("<@" + str(list(server_party[server_id])[encounter_turn[server_id]].id) + ">, it is your turn!")  
+            await dm_tracker[message.author.id]["commandchannel"].send(">>> <@" + str(list(server_party[server_id])[encounter_turn[server_id]].id) + ">, it is your turn!")  
             return
         elif current_command == 'meleespar':
             if dm_tracker[message.author.id]["currentfield"] == 0:
@@ -2439,7 +2596,7 @@ async def on_message(message):
             elif dm_tracker[message.author.id]["currentfield"] == 1:
                 user_id = message.author.id
                 target_id = dm_tracker[message.author.id]["parameters"][int(message.content)]
-                records = await select_sql("""SELECT Id,StaminaCost,MinimumLevel,DamageMultiplier,AttackName,PictureLink FROM Melee WHERE Id=%s;""",(dm_tracker[message.author.id]["fielddict"][0],))
+                records = await select_sql("""SELECT Id,StaminaCost,MinimumLevel,DamageMultiplier,AttackName,StatusChange,StatusChangedBy,PictureLink FROM Melee WHERE Id=%s;""",(dm_tracker[message.author.id]["fielddict"][0],))
                 if not records:
                     await reply_message(message, "That's not a valid melee. Try again.")
                     return
@@ -2450,7 +2607,9 @@ async def on_message(message):
                         min_level = int(row[2])
                         damage_multiplier = int(row[3])
                         parsed_string = row[4]
-                        picture_link = row[5]
+                        status_change = row[5]
+                        status_changed_by = int(row[6])
+                        picture_link = row[7]
                     melee_records = await select_sql("""SELECT CharacterId FROM MeleeSkills WHERE CharacterId=%s""", (mass_spar_chars[server_id][user_id]["CharId"],))
                     if not melee_records:
                         await reply_message(message, "You do not know this melee. Try something you do know!")
@@ -2463,7 +2622,7 @@ async def on_message(message):
                     return
                 mass_spar_chars[server_id][user_id]["Stamina"] = mass_spar_chars[server_id][user_id]["Stamina"] - stamina_cost
                 await direct_message(message, "Attacking with " + parsed_string)
- #               await dm_tracker[message.author.id]["commandchannel"].send("" + str(mass_spar_chars[server_id][user_id]["CharName"]) + " attacks " + str(mass_spar_chars[server_id][target_id]["CharName"]) + " with " + parsed_string + "!\nThis drained " + str(stamina_cost) + " from " + mass_spar_chars[server_id][user_id]["CharName"] + ", leaving them with " + str(mass_spar_chars[server_id][user_id]["Stamina"]) + " stamina!")
+ #               await dm_tracker[message.author.id]["commandchannel"].send(">>> " + str(mass_spar_chars[server_id][user_id]["CharName"]) + " attacks " + str(mass_spar_chars[server_id][target_id]["CharName"]) + " with " + parsed_string + "!\nThis drained " + str(stamina_cost) + " from " + mass_spar_chars[server_id][user_id]["CharName"] + ", leaving them with " + str(mass_spar_chars[server_id][user_id]["Stamina"]) + " stamina!")
                 attack_text = "" + str(mass_spar_chars[server_id][user_id]["CharName"]) + " attacks " + str(mass_spar_chars[server_id][target_id]["CharName"]) + " with " + parsed_string + "!\nThis drained " + str(stamina_cost) + " from " + mass_spar_chars[server_id][user_id]["CharName"] + ", leaving them with " + str(mass_spar_chars[server_id][user_id]["Stamina"]) + " stamina!\n\n"
                 embed = discord.Embed(title=attack_text)
                 if picture_link.startswith('http'):
@@ -2482,6 +2641,10 @@ async def on_message(message):
  #                   await reply_message(message, mass_spar_chars[server_id][target_id]["CharName"] + " dodged the attack! No damage taken!")
                 else:
                     damage = await calculate_damage(mass_spar_chars[server_id][user_id]["Attack"], mass_spar_chars[server_id][target_id]["Defense"], damage_multiplier, mass_spar_chars[server_id][user_id]["Level"], mass_spar_chars[server_id][target_id]["Level"])
+                    if status_change != 'None':
+                        result = await commit_sql("""UPDATE CharacterProfiles SET Status=%s WHERE Id=%s;""",(str(status_change + '=' + str(status_changed_by)),str(mass_spar_chars[server_id][target_id]["CharId"])))
+                        embed2 = discord.Embed(title=mass_spar_chars[server_id][target_id]["CharName"] + " has been " + status_change + "!")
+                        await dm_tracker[message.author.id]["commandchannel"].send(embed=embed2)
                     mass_spar_chars[server_id][target_id]["Health"] = mass_spar_chars[server_id][target_id]["Health"] - damage
                     mass_spar_chars[server_id][user_id]["TotalDamage"] = mass_spar_chars[server_id][user_id]["TotalDamage"] + damage
                     hit_text = "" + mass_spar_chars[server_id][target_id]["CharName"] + " was hit by " + mass_spar_chars[server_id][user_id]["CharName"] + " for " + str(damage) + " points!\n\nHealth now at " + str(mass_spar_chars[server_id][target_id]["Health"]) + "!"
@@ -2490,7 +2653,7 @@ async def on_message(message):
                     embed.set_thumbnail(url=mass_spar_chars[server_id][target_id]["PictureLink"])
                     await dm_tracker[message.author.id]["commandchannel"].send(embed=embed) 
                     await asyncio.sleep(1)
-                    #await dm_tracker[message.author.id]["commandchannel"].send("" + mass_spar_chars[server_id][target_id]["CharName"] + " was hit by " + mass_spar_chars[server_id][user_id]["CharName"] + " for " + str(damage) + " points!\n\nHealth now at " + str(mass_spar_chars[server_id][target_id]["Health"]))
+                    #await dm_tracker[message.author.id]["commandchannel"].send(">>> " + mass_spar_chars[server_id][target_id]["CharName"] + " was hit by " + mass_spar_chars[server_id][user_id]["CharName"] + " for " + str(damage) + " points!\n\nHealth now at " + str(mass_spar_chars[server_id][target_id]["Health"]))
                     if mass_spar_chars[server_id][target_id]["Health"] < 1:
                         fallen_text = mass_spar_chars[server_id][target_id]["CharName"] + " has no health left and is out of the fight!"
                         embed = discord.Embed(title=fallen_text)
@@ -2524,14 +2687,20 @@ async def on_message(message):
                         except: old_xp = 0                            
                         total_xp = old_xp + new_xp
                         if total_xp > (guild_settings[server_id]["XPLevelRatio"] * fallen_chars[server_id][char]["Level"]):
+                            if fallen_chars[server_id][char]["CharId"] == 0:
+                                continue
                             fallen_chars[server_id][char]["Level"] = fallen_chars[server_id][char]["Level"] + 1
-                            available_points[server_id][char] = int(fallen_chars[server_id][char]["Level"] * 10)
-                            response = response + "**" + fallen_chars[server_id][char]["CharName"] + "** LEVELED UP TO LEVEL **" + str(fallen_chars[server_id][char]["Level"]) + "!**\nYou have " + str(int(fallen_chars[server_id][char]["Level"]*10)) + " stat points to spend!\n\n"
+                            records = await select_sql("""SELECT StatPoints FROM CharacterProfiles WHERE Id=%s;""",(str(fallen_chars[server_id][char]["CharId"]),))
+                            for row in records:
+                                stat_points = int(row[0])
+                                
+                            available_points = int(fallen_chars[server_id][char]["Level"] * 10) + stat_points
+                            response = response + "**" + fallen_chars[server_id][char]["CharName"] + "** LEVELED UP TO LEVEL **" + str(fallen_chars[server_id][char]["Level"]) + "!**\nYou have " + str(available_points) + " stat points to spend!\n\n"
                             total_xp = 0
                             health = fallen_chars[server_id][user_id]["Level"] * guild_settings[server_id]["HealthLevelRatio"]
                             stamina = fallen_chars[server_id][user_id]["Level"] * guild_settings[server_id]["StaminaLevelRatio"]
                             mana = fallen_chars[server_id][user_id]["Level"] * guild_settings[server_id]["ManaLevelRatio"]
-                            result = await commit_sql("""UPDATE CharacterProfiles SET Level=%s,Experience=%s,Health=%s,Stamina=%s,Mana=%s WHERE Id=%s;""",(str(fallen_chars[server_id][target_id]["Level"]),str(total_xp),str(health), str(stamina), str(mana), str(fallen_chars[server_id][target_id]["CharId"])))
+                            result = await commit_sql("""UPDATE CharacterProfiles SET Level=%s,Experience=%s,Health=%s,Stamina=%s,Mana=%s,StatPoints=%s WHERE Id=%s;""",(str(fallen_chars[server_id][target_id]["Level"]),str(total_xp),str(health), str(stamina), str(mana), str(available_points), str(fallen_chars[server_id][target_id]["CharId"])))
                         else:
                             result = await commit_sql("""UPDATE CharacterProfiles SET Experience=%s WHERE Id=%s;""",(str(total_xp), str(fallen_chars[server_id][target_id]["CharId"])))                            
                     mass_spar_event[server_id] = False
@@ -2539,14 +2708,14 @@ async def on_message(message):
                     embed = discord.Embed(title="Result",description=response)
                     await dm_tracker[message.author.id]["commandchannel"].send(embed=embed)
                     await asyncio.sleep(1)
-                #    await dm_tracker[message.author.id]["commandchannel"].send("" + response)
+                #    await dm_tracker[message.author.id]["commandchannel"].send(">>> " + response)
                     return
                             
                 if mass_spar_turn[server_id] > len(mass_spar_chars[server_id]) - 2:
                     mass_spar_turn[server_id] = 0
                 else:
                     mass_spar_turn[server_id] = mass_spar_turn[server_id] + 1
-                await dm_tracker[message.author.id]["commandchannel"].send("<@" + str(list(mass_spar[server_id])[mass_spar_turn[server_id]].id) + ">, it is your turn!")
+                await dm_tracker[message.author.id]["commandchannel"].send(">>> <@" + str(list(mass_spar[server_id])[mass_spar_turn[server_id]].id) + ">, it is your turn!")
                 if mass_spar[server_id][mass_spar_turn[server_id]] == client.user:
                     picker = random.randint(1,2)
                     if picker == 1:
@@ -2554,7 +2723,7 @@ async def on_message(message):
                     else:
                         await ai_meleespar(message)
                     mass_spar_turn[server_id] = mass_spar_turn[server_id] = 0
-                    await dm_tracker[message.author.id]["commandchannel"].send("<@" + str(list(mass_spar[server_id])[mass_spar_turn[server_id]].id) + ">, it is your turn!")
+                    await dm_tracker[message.author.id]["commandchannel"].send(">>> <@" + str(list(mass_spar[server_id])[mass_spar_turn[server_id]].id) + ">, it is your turn!")
                 await initialize_dm(message.author.id) 
             return
         elif current_command == 'castspar':
@@ -2575,7 +2744,7 @@ async def on_message(message):
                 user_id = message.author.id
                 dm_tracker[message.author.id]["fielddict"].append(message.content)
                 target_id = dm_tracker[message.author.id]["parameters"][int(message.content)]
-                records = await select_sql("""SELECT Id,Element,ManaCost,MinimumLevel,DamageMultiplier,SpellName,PictureLink FROM Spells WHERE Id=%s;""",(dm_tracker[message.author.id]["fielddict"][0],))
+                records = await select_sql("""SELECT Id,Element,ManaCost,MinimumLevel,DamageMultiplier,SpellName,StatusChange,StatusChangedBy,PictureLink FROM Spells WHERE Id=%s;""",(dm_tracker[message.author.id]["fielddict"][0],))
                 if not records:
                     await direct_message(message, "That's not a valid spell. Try again.")
                     return
@@ -2587,7 +2756,9 @@ async def on_message(message):
                         min_level = int(row[3])
                         damage_multiplier = int(row[4])
                         parsed_string = row[5]
-                        picture_link = row[6]
+                        status_change = row[6]
+                        status_changed_by = int(row[7])
+                        picture_link = row[8]
                     spell_records = await select_sql("""SELECT CharacterId FROM MagicSkills WHERE CharacterId=%s""", (mass_spar_chars[server_id][user_id]["CharId"],))
                     if not spell_records:
                         await direct_message(message, "You do not know this spell. Try something you do know!")
@@ -2609,7 +2780,7 @@ async def on_message(message):
 
                 dodge = await calculate_dodge(mass_spar_chars[server_id][user_id]["Level"], mass_spar_chars[server_id][user_id]["Agility"])
                 if dodge:
-                  #  await dm_tracker[message.author.id]["commandchannel"].send("" + mass_spar_chars[server_id][target_id]["CharName"] + " dodged the attack! No damage taken!")
+                  #  await dm_tracker[message.author.id]["commandchannel"].send(">>> " + mass_spar_chars[server_id][target_id]["CharName"] + " dodged the attack! No damage taken!")
                     dodge_text = "" + mass_spar_chars[server_id][target_id]["CharName"] + " dodged the attack! No damage taken!"
                     embed = discord.Embed(title=dodge_text)
                     embed.set_thumbnail(url=mass_spar_chars[server_id][target_id]["PictureLink"])
@@ -2619,6 +2790,10 @@ async def on_message(message):
                 else:
                     damage = await calculate_damage(mass_spar_chars[server_id][user_id]["MagicAttack"], mass_spar_chars[server_id][target_id]["Defense"], damage_multiplier, mass_spar_chars[server_id][user_id]["Level"], mass_spar_chars[server_id][target_id]["Level"])
                     mass_spar_chars[server_id][target_id]["Health"] = mass_spar_chars[server_id][target_id]["Health"] - damage
+                    if status_change != 'None':
+                        result = await commit_sql("""UPDATE CharacterProfiles SET Status=%s WHERE Id=%s;""",(str(status_change + '=' + str(status_changed_by)),str(mass_spar_chars[server_id][target_id]["CharId"])))
+                        embed2 = discord.Embed(title=mass_spar_chars[server_id][target_id]["CharName"] + " has been " + status_change + "!")
+                        await dm_tracker[message.author.id]["commandchannel"].send(embed=embed2)                    
                     mass_spar_chars[server_id][user_id]["TotalDamage"] = mass_spar_chars[server_id][user_id]["TotalDamage"] + damage
                     hit_text = "" + mass_spar_chars[server_id][target_id]["CharName"] + " was hit by " + mass_spar_chars[server_id][user_id]["CharName"] + " for " + str(damage) + " points!\n\nHealth now at " + str(mass_spar_chars[server_id][target_id]["Health"]) + "!"
                     embed = discord.Embed(title=hit_text)
@@ -2628,7 +2803,7 @@ async def on_message(message):
 
                     if mass_spar_chars[server_id][target_id]["Health"] < 1:
                         
-                       # await dm_tracker[message.author.id]["commandchannel"].send("" + mass_spar_chars[server_id][target_id]["CharName"] + " has no health left and is out of the fight!")
+                       # await dm_tracker[message.author.id]["commandchannel"].send(">>> " + mass_spar_chars[server_id][target_id]["CharName"] + " has no health left and is out of the fight!")
                         out_text = "" + mass_spar_chars[server_id][target_id]["CharName"] + " has no health left and is out of the fight!"
                         embed = discord.Embed(title=out_text)
                         embed.set_thumbnail(url=mass_spar_chars[server_id][target_id]["PictureLink"])
@@ -2660,14 +2835,20 @@ async def on_message(message):
                         except: old_xp = 0
                         total_xp = old_xp + new_xp
                         if total_xp > (guild_settings[server_id]["XPLevelRatio"] * fallen_chars[server_id][char]["Level"]):
+                            if fallen_chars[server_id][char]["CharId"] == 0:
+                                continue                        
                             fallen_chars[server_id][char]["Level"] = fallen_chars[server_id][char]["Level"] + 1
-                            available_points[server_id][char] = int(fallen_chars[server_id][char]["Level"] * 10)
-                            response = response + "**" + fallen_chars[server_id][char]["CharName"] + "** LEVELED UP TO LEVEL **" + str(fallen_chars[server_id][char]["Level"]) + "!**\nYou have " + str(int(fallen_chars[server_id][char]["Level"]*10)) + " stat points to spend!\n\n"
+                            records = await select_sql("""SELECT StatPoints FROM CharacterProfiles WHERE Id=%s;""",(str(fallen_chars[server_id][char]["CharId"]),))
+                            for row in records:
+                                stat_points = int(row[0])
+                                
+                            available_points = int(fallen_chars[server_id][char]["Level"] * 10) + stat_points
+                            response = response + "**" + fallen_chars[server_id][char]["CharName"] + "** LEVELED UP TO LEVEL **" + str(fallen_chars[server_id][char]["Level"]) + "!**\nYou have " + str(available_points) + " stat points to spend!\n\n"
                             total_xp = 0
                             health = fallen_chars[server_id][user_id]["Level"] * guild_settings[server_id]["HealthLevelRatio"]
                             stamina = fallen_chars[server_id][user_id]["Level"] * guild_settings[server_id]["StaminaLevelRatio"]
                             mana = fallen_chars[server_id][user_id]["Level"] * guild_settings[server_id]["ManaLevelRatio"]
-                            result = await commit_sql("""UPDATE CharacterProfiles SET Level=%s,Experience=%s,Health=%s,Stamina=%s,Mana=%s WHERE Id=%s;""",(str(fallen_chars[server_id][target_id]["Level"]),str(total_xp),str(health), str(stamina), str(mana), str(fallen_chars[server_id][target_id]["CharId"])))
+                            result = await commit_sql("""UPDATE CharacterProfiles SET Level=%s,Experience=%s,Health=%s,Stamina=%s,Mana=%s,StatPoints=%s WHERE Id=%s;""",(str(fallen_chars[server_id][target_id]["Level"]),str(total_xp),str(health), str(stamina), str(mana), str(available_points), str(fallen_chars[server_id][target_id]["CharId"])))
                         else:
                             result = await commit_sql("""UPDATE CharacterProfiles SET Experience=%s WHERE Id=%s;""",(str(total_xp), str(fallen_chars[server_id][target_id]["CharId"])))
                     mass_spar_event[server_id] = False
@@ -2675,7 +2856,7 @@ async def on_message(message):
                     embed = discord.Embed(title="Results",description=response)
                     await dm_tracker[message.author.id]["commandchannel"].send(embed=embed)
                     await asyncio.sleep(1)
-                 #   await dm_tracker[message.author.id]["commandchannel"].send("" + response)
+                 #   await dm_tracker[message.author.id]["commandchannel"].send(">>> " + response)
                     return
 
                             
@@ -2683,7 +2864,7 @@ async def on_message(message):
                     mass_spar_turn[server_id] = 0
                 else:
                     mass_spar_turn[server_id] = mass_spar_turn[server_id] + 1
-                await dm_tracker[message.author.id]["commandchannel"].send("<@" + str(list(mass_spar[server_id])[mass_spar_turn[server_id]].id) + ">, it is your turn!")  
+                await dm_tracker[message.author.id]["commandchannel"].send(">>> <@" + str(list(mass_spar[server_id])[mass_spar_turn[server_id]].id) + ">, it is your turn!")  
                 
                 if mass_spar[server_id][mass_spar_turn[server_id]] == client.user:
                     picker = random.randint(1,2)
@@ -2692,7 +2873,7 @@ async def on_message(message):
                     else:
                         await ai_meleespar(message)
                     mass_spar_turn[server_id] = mass_spar_turn[server_id] = 0
-                    await dm_tracker[message.author.id]["commandchannel"].send("<@" + str(list(mass_spar[server_id])[mass_spar_turn[server_id]].id) + ">, it is your turn!")
+                    await dm_tracker[message.author.id]["commandchannel"].send(">>> <@" + str(list(mass_spar[server_id])[mass_spar_turn[server_id]].id) + ">, it is your turn!")
                 await initialize_dm(message.author.id)
                 return
         elif current_command == 'buy':
@@ -2713,7 +2894,9 @@ async def on_message(message):
                     item_record = await select_sql("SELECT EquipmentName,EquipmentCost FROM Equipment WHERE Id=%s;", (item,))
                     for item_obj in item_record:
                         response = response + "**" + item + "** - " + item_obj[0] + " - *" + str(item_obj[1]) + "*\n"
-                        allowed_ids[message.author.id].append(item.strip())
+                        allowed_ids[message.author.id] = []
+                        for x in item_list:
+                            allowed_ids[message.author.id].append(x.strip())
                 await direct_message(message, response)
                 dm_tracker[message.author.id]["currentfield"] = 2
                 return
@@ -2729,7 +2912,7 @@ async def on_message(message):
                 for row in records:
                     item_name = row[0]
                     cost = float(row[1])
-                records = await select_sql("""SELECT UserId,Currency,CharacterName FROM CharacterProfiles WHERE Id=%s;""",(dm_tracker[message.author.id]["fielddict"][0],))
+                records = await select_sql("""SELECT UserId,Currency,CharacterName,Charisma,Level FROM CharacterProfiles WHERE Id=%s;""",(dm_tracker[message.author.id]["fielddict"][0],))
                 if not records:
                     await direct_message(message, "No character found by that ID")
                     return
@@ -2737,12 +2920,22 @@ async def on_message(message):
                     user_id = row[0]
                     currency = float(row[1])
                     char_name = row[2]
+                    charisma = int(row[3])
+                    level = int(row[4])
                 if int(user_id) != message.author.id:
                     await direct_message(message, "This isn't your character!")
                     return
+                haggle = random.randint(1,10)
+                if (haggle <= 2):
+                    discount = (cost * (level/charisma))
+                    await dm_tracker[message.author.id]["commandchannel"].send(">>> You haggled a discount of " + str(discount) + "!")
+                    cost = cost - discount
                 if currency < cost:
                     await direct_message(message, "You don't have enough money to buy this!")
                     return
+
+                    
+                
                 currency = currency - cost
                 records = await select_sql("""SELECT GuildBankBalance FROM GuildSettings WHERE ServerId=%s;""", (str(dm_tracker[message.author.id]["server_id"]),))
                 for row in records:
@@ -2756,7 +2949,7 @@ async def on_message(message):
                 result = await commit_sql("""INSERT INTO Inventory (ServerId, UserId, CharacterId, EquipmentId) VALUES (%s, %s, %s, %s);""",(str(dm_tracker[message.author.id]["server_id"]), str(message.author.id), dm_tracker[message.author.id]["fielddict"][0], dm_tracker[message.author.id]["fielddict"][2]))
                 if result:
                     await direct_message(message, char_name + " purchased " + item_name + " for " + str(cost) + " and has " + str(currency) + " left.")
-                    await dm_tracker[message.author.id]["commandchannel"].send(""+ char_name + " purchased " + item_name + " for " + str(cost) + " and has " + str(currency) + " left.")
+                    await dm_tracker[message.author.id]["commandchannel"].send(">>> "+ char_name + " purchased " + item_name + " for " + str(cost) + " and has " + str(currency) + " left.")
                     result_2 = await commit_sql("""UPDATE CharacterProfiles SET Currency=%s WHERE Id=%s""", (str(currency), dm_tracker[message.author.id]["fielddict"][0]))
                     if not result_2:
                         await reply_message(message, "Database error!")
@@ -2776,6 +2969,7 @@ async def on_message(message):
             elif dm_tracker[message.author.id]["currentfield"] == 1:
                 dm_tracker[message.author.id]["fielddict"].append(message.content)
                 records = await select_sql("""SELECT ArmamentList FROM Armory WHERE Id=%s;""",(message.content,))
+                allowed_ids[message.author.id] = []
                 response  = "Select an armament from the armory by using the ID in bold in your reply.\n\n**ARMORY ITEMS**\n\n"
                 for row in records:
                     item_list = row[0].split(',')
@@ -2783,7 +2977,7 @@ async def on_message(message):
                     item_record = await select_sql("SELECT ArmamentName,ArmamentCost FROM Armaments WHERE Id=%s;", (item,))
                     for item_obj in item_record:
                         response = response + "**" + item + "** - " + item_obj[0] + " - *" + str(item_obj[1]) + "*\n"
-                        allowed_ids[message.author.id].append(item.strip())
+                    allowed_ids[message.author.id].append(item.strip())
                 await direct_message(message, response)
                 dm_tracker[message.author.id]["currentfield"] = 2
                 return
@@ -2799,7 +2993,7 @@ async def on_message(message):
                 for row in records:
                     item_name = row[0]
                     cost = float(row[1])
-                records = await select_sql("""SELECT UserId,Currency,CharacterName FROM CharacterProfiles WHERE Id=%s;""",(dm_tracker[message.author.id]["fielddict"][0],))
+                records = await select_sql("""SELECT UserId,Currency,CharacterName,Level,Charisma FROM CharacterProfiles WHERE Id=%s;""",(dm_tracker[message.author.id]["fielddict"][0],))
                 if not records:
                     await direct_message(message, "No character found by that ID")
                     return
@@ -2807,9 +3001,15 @@ async def on_message(message):
                     user_id = row[0]
                     currency = float(row[1])
                     char_name = row[2]
+                    level = int(row[3])
+                    charisma = int(row[4])
                 if int(user_id) != message.author.id:
                     await direct_message(message, "This isn't your character!")
                     return
+                haggle = random.randint(1,10)
+                if (haggle <= 2):
+                    discount = (cost * (level/charisma))
+                    await dm_tracker[message.author.id]["commandchannel"].send(">>> You haggled a discount of " + str(discount) + "!")                    
                 if currency < cost:
                     await direct_message(message, "You don't have enough money to buy this!")
                     return
@@ -2826,7 +3026,7 @@ async def on_message(message):
                 result = await commit_sql("""INSERT INTO ArmamentInventory (ServerId, UserId, CharacterId, ArmamentId) VALUES (%s, %s, %s, %s);""",(str(dm_tracker[message.author.id]["server_id"]), str(message.author.id), dm_tracker[message.author.id]["fielddict"][0], dm_tracker[message.author.id]["fielddict"][2]))
                 if result:
                     await direct_message(message, char_name + " purchased " + item_name + " for " + str(cost) + " and has " + str(currency) + " left.")
-                    await dm_tracker[message.author.id]["commandchannel"].send(""+ char_name + " purchased " + item_name + " for " + str(cost) + " and has " + str(currency) + " left.")
+                    await dm_tracker[message.author.id]["commandchannel"].send(">>> "+ char_name + " purchased " + item_name + " for " + str(cost) + " and has " + str(currency) + " left.")
                     result_2 = await commit_sql("""UPDATE CharacterProfiles SET Currency=%s WHERE Id=%s""", (str(currency), dm_tracker[message.author.id]["fielddict"][0]))
                     if not result_2:
                         await reply_message(message, "Database error!")
@@ -2884,7 +3084,7 @@ async def on_message(message):
                 result = await commit_sql("""DELETE FROM Inventory WHERE ServerId=%s AND UserId=%s AND CharacterId=%s AND EquipmentId=%s;""",(str(dm_tracker[message.author.id]["server_id"]), str(message.author.id), dm_tracker[message.author.id]["fielddict"][0], item_id))
                 if result:
                     await direct_message(message, char_name + " sold for " + str(cost) + " and has " + str(currency) + " left.")
-                    await dm_tracker[message.author.id]["commandchannel"].send("" + char_name + " sold for " + str(cost) + " and has " + str(currency) + " left.")
+                    await dm_tracker[message.author.id]["commandchannel"].send(">>> " + char_name + " sold for " + str(cost) + " and has " + str(currency) + " left.")
                     result_2 = await commit_sql("""UPDATE CharacterProfiles SET Currency=%s WHERE Id=%s""", (str(currency), dm_tracker[message.author.id]["fielddict"][0]))
                     if not result_2:
                         await direct_message(message, "Database error!")
@@ -2943,7 +3143,7 @@ async def on_message(message):
                 result = await commit_sql("""DELETE FROM ArmamentInventory WHERE ServerId=%s AND UserId=%s AND CharacterId=%s AND ArmamentId=%s;""",(str(dm_tracker[message.author.id]["server_id"]), str(message.author.id), dm_tracker[message.author.id]["fielddict"][0], item_id))
                 if result:
                     await direct_message(message, char_name + " sold for " + str(cost) + " and has " + str(currency) + " left.")
-                    await dm_tracker[message.author.id]["commandchannel"].send("" + char_name + " sold for " + str(cost) + " and has " + str(currency) + " left.")
+                    await dm_tracker[message.author.id]["commandchannel"].send(">>> " + char_name + " sold for " + str(cost) + " and has " + str(currency) + " left.")
                     result_2 = await commit_sql("""UPDATE CharacterProfiles SET Currency=%s WHERE Id=%s""", (str(currency), dm_tracker[message.author.id]["fielddict"][0]))
                     if not result_2:
                         await direct_message(message, "Database error!")
@@ -2989,7 +3189,7 @@ async def on_message(message):
                     result_2 = await commit_sql("""UPDATE CharacterProfiles SET Currency=%s WHERE Id=%s;""", (str(target_currency + sent_amount),dm_tracker[message.author.id]["fielddict"][1]))
                     if result_2:
                         await direct_message(message, user_name + " has given " + target_name + " " + str(sent_amount) + " of currency!")
-                        await dm_tracker[message.author.id]["commandchannel"].send("" + user_name + " has sent " + target_name + " " + str(sent_amount) + " of currency, a character played by <@" + target_id + "> .")
+                        await dm_tracker[message.author.id]["commandchannel"].send(">>> " + user_name + " has sent " + target_name + " " + str(sent_amount) + " of currency, a character played by <@" + target_id + "> .")
                 return
         elif current_command == 'buff':
             if current_field == 0:
@@ -3060,7 +3260,21 @@ async def on_message(message):
                         mana_left = server_party_chars[dm_tracker[message.author.id]["server_id"]][message.author.id]["Mana"]
                 response = char_name + " used buff " + buff + " and changed " + stat_mod + " by " + str(mod) + " points to " + str(stat_to_mod) + " on " + target_name + " and has " + str(mana_left) + " mana remaining!"
                 await direct_message(message, response)
-                await dm_tracker[message.author.id]["commandchannel"].send("" + response)
+                await dm_tracker[message.author.id]["commandchannel"].send(">>> " + response)
+                if mass_spar_turn[server_id] > len(mass_spar_chars[server_id]) - 2:
+                    mass_spar_turn[server_id] = 0
+                else:
+                    mass_spar_turn[server_id] = mass_spar_turn[server_id] + 1
+                await dm_tracker[message.author.id]["commandchannel"].send(">>> <@" + str(list(mass_spar[server_id])[mass_spar_turn[server_id]].id) + ">, it is your turn!")
+                if mass_spar[server_id][mass_spar_turn[server_id]] == client.user:
+                    picker = random.randint(1,2)
+                    if picker == 1:
+                        await ai_castspar(message)
+                    else:
+                        await ai_meleespar(message)
+                    mass_spar_turn[server_id] = mass_spar_turn[server_id] = 0
+                    await dm_tracker[message.author.id]["commandchannel"].send(">>> <@" + str(list(mass_spar[server_id])[mass_spar_turn[server_id]].id) + ">, it is your turn!")
+               
                 await initialize_dm(message.author.id)
                 return                
         elif current_command == 'useitem1':
@@ -3080,7 +3294,7 @@ async def on_message(message):
         elif current_command == 'useitem2':
             item_id = message.content
             char_id = dm_tracker[message.author.id]["parameters"]
-            records = await select_sql("""SELECT Id,MinimumLevel,StatMod,Modifier,EquipmentName FROM Equipment WHERE ServerId=%s AND Id=%s;""",(str(dm_tracker[message.author.id]["server_id"]), item_id))
+            records = await select_sql("""SELECT Id,MinimumLevel,StatMod,Modifier,EquipmentName,StatusChange,StatusChangedBy FROM Equipment WHERE ServerId=%s AND Id=%s;""",(str(dm_tracker[message.author.id]["server_id"]), item_id))
             if not records:
                 await reply_message(message, "No item found by that ID")
                 return
@@ -3089,51 +3303,130 @@ async def on_message(message):
                 stat_mod = row[2]
                 mod = int(row[3])
                 item = row[4]
-
+                status_change = str(row[5])
+                status_changed_by = int(row[6])
+                
             records = await select_sql("""SELECT Id FROM Inventory WHERE ServerId=%s AND CharacterId=%s AND EquipmentId=%s;""",  (str(dm_tracker[message.author.id]["server_id"]), char_id, item_id))
             if not records:
                 await reply_message(message, "That item is not in your inventory!")
                 return
             for row in records:
                 inventory_id = row[0]
-            records = await select_sql("SELECT CharacterName,Level," + stat_mod + " FROM CharacterProfiles WHERE Id=%s", (str(char_id),))
+            if stat_mod != 'None':
+                records = await select_sql("SELECT CharacterName,Level," + stat_mod + " FROM CharacterProfiles WHERE Id=%s", (str(char_id),))
+            else:
+                records = await select_sql("SELECT CharacterName,Level FROM CharacterProfiles WHERE Id=%s", (str(char_id),))
             for row in records:
                 char_name = row[0]
                 level = int(row[1])
-                stat_to_mod = int(row[2])
+                if stat_mod != 'None':
+                    stat_to_mod = int(row[2])
             if level < min_level:
                 await direct_message(message, "You aren't a high enough level to use this item! Level up or sell it for cash!")
-                return                
-            stat_to_mod = stat_to_mod + mod
-            if mass_spar_event[dm_tracker[message.author.id]["server_id"]]:
-                if mass_spar_chars[dm_tracker[message.author.id]["server_id"]][message.author.id]:
-                    mass_spar_chars[dm_tracker[message.author.id]["server_id"]][message.author.id][stat_mod] = stat_to_mod
-            if server_party[dm_tracker[message.author.id]["server_id"]]:
-                if server_party_chars[dm_tracker[message.author.id]["server_id"]][message.author.id]:
-                    server_party_chars[dm_tracker[message.author.id]["server_id"]][message.author.id][stat_mod] = stat_to_mod                  
-            result = await commit_sql("""UPDATE CharacterProfiles SET """+ stat_mod + """=%s WHERE Id=%s""",(str(stat_to_mod), char_id))
-            if not result:
-                await reply_message(message, "Database error!")
-                return
-            result = await commit_sql("""DELETE FROM Inventory WHERE Id=%s;""", (inventory_id,))
-            if not result:
-                await reply_message(message, "Database error!")
-                return
-            response = char_name + " consumed item " + item + " and changed " + stat_mod + " by " + str(mod) + " points to " + str(stat_to_mod) + "!"
-            await direct_message(message, response)
-            await dm_tracker[message.author.id]["commandchannel"].send("" + response)
-            await initialize_dm(message.author.id)
-            return
+                return 
+            if stat_mod != 'None':
+                stat_to_mod = stat_to_mod + mod
             
+            if not mass_spar_event[dm_tracker[message.author.id]["server_id"]] and not server_party[dm_tracker[message.author.id]["server_id"]] and stat_mod!='None':
+                result = await commit_sql("""UPDATE CharacterProfiles SET """+ stat_mod + """=%s WHERE Id=%s""",(str(stat_to_mod), char_id))
+                response = char_name + " consumed item " + item + " and changed " + stat_mod + " by " + str(mod) + " points to " + str(stat_to_mod) + "!"
+                await direct_message(message, response)
+                await dm_tracker[message.author.id]["commandchannel"].send(">>> " + response)
+                await initialize_dm(message.author.id)
+                return
+            elif not mass_spar_event[dm_tracker[message.author.id]["server_id"]] and not server_party[dm_tracker[message.author.id]["server_id"]]:
+                records = await select_sql("""SELECT IFNULL(Status,'None') FROM CharacterProfiles WHERE Id=%s;""",(str(char_id),))
+                for row in records:
+                    current_status = row[0]
+                result = await commit_sql("""UPDATE CharacterProfiles SET Status=%s WHERE Id=%s;""",(str(status_change + "=" + str(status_changed_by)),str(char_id)))
+                result = await commit_sql("""DELETE FROM Inventory WHERE Id=%s;""", (inventory_id,))
+                response = "Your character has had a status change to " + status_change + " by the item " + item + "!"
+                await direct_message(message, response)
+                await dm_tracker[message.author.id]["commandchannel"].send(">>> " + response)
+                await initialize_dm(message.author.id)
+                return
+            else:
+                dm_tracker[message.author.id]["currentcommand"] = "useitem3"
+                dm_tracker[message.author.id]["char_id"] = char_id
+                dm_tracker[message.author.id]["stat_mod"] = stat_mod
+                if stat_mod != 'None':
+                    dm_tracker[message.author.id]["stat_to_mod"] = stat_to_mod
+                dm_tracker[message.author.id]["item"] = item
+                dm_tracker[message.author.id]["status_change"] = status_change
+                dm_tracker[message.author.id]["status_changed_by"] = status_changed_by
+                dm_tracker[message.author.id]["inventory_id"] = inventory_id
+                char_map = {} 
+                dm_tracker[message.author.id]["fielddict"].append(message.content)
+                response = "Select a target:\n\n"
+                for character in mass_spar_chars[server_id]:
+                    char_name = mass_spar_chars[server_id][character]["CharName"]
+                    char_id = mass_spar_chars[server_id][character]["CharId"]
+                    char_map[char_id] = character
+                    response = response + "**" + str(char_id) + "** - " + char_name + "\n"
+                await direct_message(message, response)
+                dm_tracker[message.author.id]["parameters"] =  char_map              
+                return
+        elif current_command == 'useitem3':  
+            char_id= dm_tracker[message.author.id]["char_id"] 
+            stat_mod= dm_tracker[message.author.id]["stat_mod"] 
+            if stat_mod != 'None':
+                stat_to_mod= dm_tracker[message.author.id]["stat_to_mod"] 
+            item= dm_tracker[message.author.id]["item"] 
+            status_change= dm_tracker[message.author.id]["status_change"] 
+            status_changed_by = dm_tracker[message.author.id]["status_changed_by"]    
+            inventory_id = dm_tracker[message.author.id]["inventory_id"]
+            if stat_mod != 'None':
+                if mass_spar_event[dm_tracker[message.author.id]["server_id"]] and stat_mod != 'None':
+                    if mass_spar_chars[dm_tracker[message.author.id]["server_id"]][dm_tracker[message.author.id]["parameters"][int(message.content)]]:
+                        mass_spar_chars[dm_tracker[message.author.id]["server_id"]][dm_tracker[message.author.id]["parameters"][int(message.content)]][message.author.id][stat_mod] = stat_to_mod
+                if server_party[dm_tracker[message.author.id]["server_id"]] and stat_mod != 'None':
+                    if server_party_chars[dm_tracker[message.author.id]["server_id"]][dm_tracker[message.author.id]["parameters"][int(message.content)]]:
+                        server_party_chars[dm_tracker[message.author.id]["server_id"]][dm_tracker[message.author.id]["parameters"][int(message.content)]][message.author.id][stat_mod] = stat_to_mod                  
+                result = await commit_sql("""UPDATE CharacterProfiles SET """+ stat_mod + """=%s WHERE Id=%s""",(str(stat_to_mod), message.content))
+                
+                if not result:
+                    await reply_message(message, "Database error!")
+                    return
+                result = await commit_sql("""DELETE FROM Inventory WHERE Id=%s;""", (inventory_id,))
+                if not result:
+                    await reply_message(message, "Database error!")
+                    return
+                response = char_name + " used item " + item + " on <@" + str(dm_tracker[message.author.id]["parameters"][int(message.content)]) + "> and changed " + stat_mod + " by " + str(mod) + " points to " + str(stat_to_mod) + "!"
+                await direct_message(message, response)
+                await dm_tracker[message.author.id]["commandchannel"].send(">>> " + response)
+                await initialize_dm(message.author.id)
+                return
+            elif status_changed_by != 0:
+                chance_of_success  = random.randint(1,100)
+                if chance_of_success >= 30:
+                    records = await select_sql("""SELECT IFNULL(Status,'None') FROM CharacterProfiles WHERE Id=%s;""",(str(message.content),))
+                    for row in records:
+                        current_status = row[0]
+                    result = await commit_sql("""UPDATE CharacterProfiles SET Status=%s WHERE Id=%s;""",(str(status_change + "=" + str(status_changed_by)),str(message.content)))
+                    result = await commit_sql("""DELETE FROM Inventory WHERE Id=%s;""", (inventory_id,))
+                    response = "<@" + str(dm_tracker[message.author.id]["parameters"][int(message.content)]) + "> has had a status change to " + status_change + " by the item " + item + "!"
+                    await direct_message(message, response)
+                    await dm_tracker[message.author.id]["commandchannel"].send(">>> " + response)
+                    await initialize_dm(message.author.id)
+                else:
+                    result = await commit_sql("""DELETE FROM Inventory WHERE Id=%s;""", (inventory_id,))
+                    response = "The item effect failed!"
+                    await direct_message(message, response)
+                    await dm_tracker[message.author.id]["commandchannel"].send(">>> " + response)
+                    await initialize_dm(message.author.id)
+                return
+                    
+                
         dm_tracker[message.author.id]["fielddict"].append(message.content.strip())
         dm_tracker[message.author.id]["currentfield"] = dm_tracker[message.author.id]["currentfield"] + 1
         if dm_tracker[message.author.id]["currentfield"] < len(field_list):
-            embed = discord.Embed(title=field_list[current_field + 1], description=current_command)
-            embed.add_field(name="Next field:",value=dm_tracker[message.author.id]["fieldlist"][dm_tracker[message.author.id]["currentfield"]])
-            embed.add_field(name="Next field description:",value=dm_tracker[message.author.id]["fieldmeans"][dm_tracker[message.author.id]["currentfield"]])            
-            embed.add_field(name="Last field:", value = dm_tracker[message.author.id]["fieldlist"][dm_tracker[message.author.id]["currentfield"] - 1])
-            embed.add_field(name="Value set to:", value=message.content.strip())
-
+#            embed = discord.Embed(title=field_list[current_field + 1], description=current_command)
+#            embed.add_field(name="Next field:",value=dm_tracker[message.author.id]["fieldlist"][dm_tracker[message.author.id]["currentfield"]])
+#            embed.add_field(name="Next field description:",value=dm_tracker[message.author.id]["fieldmeans"][dm_tracker[message.author.id]["currentfield"]])            
+#            embed.add_field(name="Last field:", value = dm_tracker[message.author.id]["fieldlist"][dm_tracker[message.author.id]["currentfield"] - 1])
+#            embed.add_field(name="Value set to:", value=message.content.strip())
+            embed = discord.Embed(title=field_list[current_field + 1],description = dm_tracker[message.author.id]["fieldmeans"][dm_tracker[message.author.id]["currentfield"]])
+            
             embed.add_field(name="Instructions:",value="Please reply with the desired value or *stop* to cancel.")
             await direct_message(message," ", embed)
             # await direct_message(message, "Reply received. Next field is " + "**" + dm_tracker[message.author.id]["fieldlist"][dm_tracker[message.author.id]["currentfield"]] + "**\n\nwith a description of " + dm_tracker[message.author.id]["fieldmeans"][dm_tracker[message.author.id]["currentfield"]])
@@ -3152,15 +3445,17 @@ async def on_message(message):
                 result = await commit_sql(new_custom_profile, create_tuple)
                 if result:
                     await direct_message(message, "Custom character created successfully!")
-                    await dm_tracker[message.author.id]["commandchannel"].send("Custom character successfully created.")
+                    await dm_tracker[message.author.id]["commandchannel"].send(">>> Custom character successfully created.")
                 else:
                     await direct_message(message, "Database error!")
             elif current_command == 'newdefaultchar':
                 char_name = field_dict[0]
                 if message.attachments:
                     field_dict[len(field_dict) -1] = message.attachments[0].url
-                
-                create_char_entry = "INSERT INTO UnapprovedCharacterProfiles (ServerId, UserId, "
+                if guild_settings[server_id]["AutoCharApproval"] == 1:
+                    create_char_entry = "INSERT INTO UnapprovedCharacterProfiles (ServerId, UserId, "
+                else:
+                    create_char_entry = "INSERT INTO CharacterProfiles (ServerId, UserId, "
                 create_value = "VALUES (%s, %s, "
                 char_tuple = (str(server_id), str(message.author.id),)
                 counter = 0
@@ -3173,7 +3468,7 @@ async def on_message(message):
                         break
                         
                 create_char_entry = re.sub(r", $","", create_char_entry)
-                create_char_entry = create_char_entry + ", Attack, Defense, MagicAttack, Health, Mana, Level, Experience, Stamina, Agility, Intellect, Charisma,Currency) " + re.sub(r", $","",create_value) + ", %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 1000);"
+                create_char_entry = create_char_entry + ", Attack, Defense, MagicAttack, Health, Mana, Level, Experience, Stamina, Agility, Intellect, Charisma,Currency, StatPoints) " + re.sub(r", $","",create_value) + ", %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 1000, 0);"
 
                 await log_message("SQL: " + create_char_entry)
                 char_tuple = char_tuple + (str(guild_settings[server_id]["StartingAttack"]), str(guild_settings[server_id]["StartingDefense"]), str(guild_settings[server_id]["StartingMagicAttack"]), str(guild_settings[server_id]["StartingHealth"]), str(guild_settings[server_id]["StartingMana"]), '1', '0', str(guild_settings[server_id]["StartingStamina"]), str(guild_settings[server_id]["StartingAgility"]), str(guild_settings[server_id]["StartingIntellect"]), str(guild_settings[server_id]["StartingCharisma"]))
@@ -3181,7 +3476,10 @@ async def on_message(message):
                 result = await commit_sql(create_char_entry, char_tuple)
                 if result:
                     await direct_message(message, "Character " + char_name + " successfully created.")
-                    await dm_tracker[message.author.id]["commandchannel"].send("Character " + char_name + " successfully created.\n\n<@&" + str(guild_settings[dm_tracker[message.author.id]["server_id"]]["AdminRole"]) + ">, please approve or decline the character with =approvechar or =denychar.")
+                    if guild_settings[server_id]["AutoCharApproval"] == 1:
+                        await dm_tracker[message.author.id]["commandchannel"].send(">>> Character " + char_name + " successfully created.\n\n<@&" + str(guild_settings[dm_tracker[message.author.id]["server_id"]]["AdminRole"]) + ">, please approve or decline the character with =approvechar or =denychar.")
+                    else:
+                        await dm_tracker[message.author.id]["commandchannel"].send(">>> Character " + char_name + " successfully created and ready for play!")
                 else:
                     await direct_message(message, "Database error!")
 
@@ -3191,7 +3489,7 @@ async def on_message(message):
                 result = await insert_into(message, "Spells")
                 if result:
                     await direct_message(message, "Spell " + field_dict[0] + " successfully created.")
-                    await dm_tracker[message.author.id]["commandchannel"].send("Spell " + field_dict[0] + " successfully created.")
+                    await dm_tracker[message.author.id]["commandchannel"].send(">>> Spell " + field_dict[0] + " successfully created.")
                 else:
                     await direct_message(message, "Database error!")            
             elif current_command == 'newmelee':
@@ -3200,7 +3498,7 @@ async def on_message(message):
                 result = await insert_into(message, "Melee")
                 if result:
                     await direct_message(message, "melee " + field_dict[0] + " created successfully.")
-                    await dm_tracker[message.author.id]["commandchannel"].send("Melee attack " + field_dict[0] +  " successfully created.")
+                    await dm_tracker[message.author.id]["commandchannel"].send(">>> Melee attack " + field_dict[0] +  " successfully created.")
                 else:
                     await direct_message(message, "Database error!") 
             elif current_command == 'newarmament':
@@ -3209,7 +3507,7 @@ async def on_message(message):
                 result = await insert_into(message, "Armaments")
                 if result:
                     await direct_message(message, "Armament " + field_dict[0] + " created successfully.")
-                    await dm_tracker[message.author.id]["commandchannel"].send("Armament " + field_dict[0] + " successfully created.")
+                    await dm_tracker[message.author.id]["commandchannel"].send(">>> Armament " + field_dict[0] + " successfully created.")
                 else:
                     await direct_message(message, "Database error!")                    
             elif current_command == 'newitem':
@@ -3218,7 +3516,7 @@ async def on_message(message):
                 result = await insert_into(message, "Equipment")
                 if result:
                     await direct_message(message, "equip " + field_dict[0] + " created successfully.")
-                    await dm_tracker[message.author.id]["commandchannel"].send("Item " + field_dict[0] + " successfully created.")
+                    await dm_tracker[message.author.id]["commandchannel"].send(">>> Item " + field_dict[0] + " successfully created.")
                 else:
                     await direct_message(message, "Database error!")
             elif current_command == 'newbuff':
@@ -3227,7 +3525,7 @@ async def on_message(message):
                 result = await insert_into(message, "Buffs")
                 if result:
                     await direct_message(message, "Buff " + field_dict[0] + " created successfully.")
-                    await dm_tracker[message.author.id]["commandchannel"].send("Buff " + field_dict[0] + " successfully created.")
+                    await dm_tracker[message.author.id]["commandchannel"].send(">>> Buff " + field_dict[0] + " successfully created.")
                 else:
                     await direct_message(message, "Database error!")                     
             elif current_command == 'newmonster':
@@ -3236,7 +3534,7 @@ async def on_message(message):
                 result = await insert_into(message, "Monsters")
                 if result:
                     await direct_message(message, "Monster " + field_dict[0] + " successfully created.")
-                    await dm_tracker[message.author.id]["commandchannel"].send("Monster " + field_dict[0] + " successfully created.")
+                    await dm_tracker[message.author.id]["commandchannel"].send(">>> Monster " + field_dict[0] + " successfully created.")
                 else:
                     await direct_message(message, "Database error!")
             elif current_command == 'newalt':
@@ -3247,7 +3545,7 @@ async def on_message(message):
                 result = await insert_into(message, "Alts")
                 if result:
                     await direct_message(message, "Alt " + field_dict[0] + " successfully created.")
-                    await dm_tracker[message.author.id]["commandchannel"].send("Alt " + field_dict[0] + " successfully created.")
+                    await dm_tracker[message.author.id]["commandchannel"].send(">>> Alt " + field_dict[0] + " successfully created.")
                 else:
                     await direct_message(message, "Database error!")   
             elif current_command == 'editalt':
@@ -3258,7 +3556,7 @@ async def on_message(message):
                 result = await update_table(message, "Alts")
                 if result:
                     await direct_message(message, "Alt " + field_dict[0] + " successfully edited.")
-                    await dm_tracker[message.author.id]["commandchannel"].send("Alt " + field_dict[0] + " successfully edited.")
+                    await dm_tracker[message.author.id]["commandchannel"].send(">>> Alt " + field_dict[0] + " successfully edited.")
                 else:
                     await direct_message(message, "Database error!")
             elif current_command == 'newnpc':
@@ -3268,7 +3566,7 @@ async def on_message(message):
                 result = await insert_into(message, "NonPlayerCharacters")
                 if result:
                     await direct_message(message, "NPC " + field_dict[0] + " successfully created.")
-                    await dm_tracker[message.author.id]["commandchannel"].send("NPC " + field_dict[0] + " successfully created.")
+                    await dm_tracker[message.author.id]["commandchannel"].send(">>> NPC " + field_dict[0] + " successfully created.")
                 else:
                     await direct_message(message, "Database error!")   
             elif current_command == 'editnpc':
@@ -3279,7 +3577,7 @@ async def on_message(message):
                 result = await update_table(message, "NonPlayerCharacters")
                 if result:
                     await direct_message(message, "NPC " + field_dict[0] + " successfully edited.")
-                    await dm_tracker[message.author.id]["commandchannel"].send("NPC " + field_dict[0] + " successfully edited.")
+                    await dm_tracker[message.author.id]["commandchannel"].send(">>> NPC " + field_dict[0] + " successfully edited.")
                 else:
                     await direct_message(message, "Database error!")                    
             elif current_command == 'editsetup':
@@ -3292,7 +3590,7 @@ async def on_message(message):
                 result = await update_table(message, "GuildSettings")
                 if result:
                     await direct_message(message, "Guild settings successfully edited.")
-                    await dm_tracker[message.author.id]["commandchannel"].send("Guild settings successfully edited.")
+                    await dm_tracker[message.author.id]["commandchannel"].send(">>> Guild settings successfully edited.")
                 else:
                     await direct_message(message, "Database error!")
                 return               
@@ -3302,14 +3600,14 @@ async def on_message(message):
                 result = await update_table(message, "CharacterProfiles")
                 if result:
                     await direct_message(message, "Character " + field_dict[0] + " successfully edited.")
-                    await dm_tracker[message.author.id]["commandchannel"].send("Character " + field_dict[0] + " successfully edited.")
+                    await dm_tracker[message.author.id]["commandchannel"].send(">>> Character " + field_dict[0] + " successfully edited.")
                 else:
                     await direct_message(message, "Database error!")
             elif current_command == 'editcharinfo':
                 result = await update_table(message, "CharacterProfiles")
                 if result:
                     await direct_message(message, "Character " + field_dict[0] + " successfully edited.")
-                    await dm_tracker[message.author.id]["commandchannel"].send("Character " + field_dict[0] + " successfully edited.")
+                    await dm_tracker[message.author.id]["commandchannel"].send(">>> Character " + field_dict[0] + " successfully edited.")
                 else:
                     await direct_message(message, "Database error!")                    
             elif current_command == 'editmonster':
@@ -3320,17 +3618,18 @@ async def on_message(message):
                 result = await update_table(message, "Monsters")
                 if result:
                     await direct_message(message, "Monster " + dm_tracker[message.author.id]["parameters"] + " successfully edited.")
-                    await dm_tracker[message.author.id]["commandchannel"].send("Monster " + dm_tracker[message.author.id]["parameters"] + " successfully edited.")   
+                    await dm_tracker[message.author.id]["commandchannel"].send(">>> Monster " + dm_tracker[message.author.id]["parameters"] + " successfully edited.")   
                 else:
                     await direct_message(message, "Database error!")
             elif current_command == 'edititem':
-                dm_tracker[message.author.id]["fielddict"].remove('end')
+                if 'end' in list(dm_tracker[message.author.id]["fielddict"]):
+                    dm_tracker[message.author.id]["fielddict"].remove('end')
                 if message.attachments:
                     field_dict[len(field_dict) -1] = message.attachments[0].url           
                 result = await update_table(message, "Equipment")
                 if result:
                     await direct_message(message, "Item edited successfully.")
-                    await dm_tracker[message.author.id]["commandchannel"].send("Item edited successfully.")
+                    await dm_tracker[message.author.id]["commandchannel"].send(">>> Item edited successfully.")
                 else:
                     await direct_message(message, "Database error!")
             elif current_command == 'editarmament':
@@ -3341,7 +3640,7 @@ async def on_message(message):
                 result = await update_table(message, "Armaments")
                 if result:
                     await direct_message(message, "Armament edited successfully.")
-                    await dm_tracker[message.author.id]["commandchannel"].send("Armament edited successfully.")
+                    await dm_tracker[message.author.id]["commandchannel"].send(">>> Armament edited successfully.")
                 else:
                     await direct_message(message, "Database error!")
             elif current_command == 'editbuff':
@@ -3349,7 +3648,7 @@ async def on_message(message):
                 result = await update_table(message, "Buffs")
                 if result:
                     await direct_message(message, "Buff edited successfully.")
-                    await dm_tracker[message.author.id]["commandchannel"].send("Buff edited successfully.")
+                    await dm_tracker[message.author.id]["commandchannel"].send(">>> Buff edited successfully.")
                 else:
                     await direct_message(message, "Database error!")                    
             elif current_command == 'editmelee':
@@ -3360,7 +3659,7 @@ async def on_message(message):
                 result = await update_table(message, "Melee")
                 if result:
                     await direct_message(message, "Melee attack " + dm_tracker[message.author.id]["parameters"] + " edited successfully.")
-                    await dm_tracker[message.author.id]["commandchannel"].send("Melee attack " + dm_tracker[message.author.id]["parameters"]+ " edited successfully.")
+                    await dm_tracker[message.author.id]["commandchannel"].send(">>> Melee attack " + dm_tracker[message.author.id]["parameters"]+ " edited successfully.")
                 else:
                     await direct_message(message, "Database error!")
             elif current_command == 'editspell':
@@ -3371,7 +3670,7 @@ async def on_message(message):
                 result = await update_table(message, "Spells")
                 if result:
                     await direct_message(message, "Spell " + dm_tracker[message.author.id]["parameters"] + " edited successfully.")
-                    await dm_tracker[message.author.id]["commandchannel"].send("Spell attack " + dm_tracker[message.author.id]["parameters"]+ " edited successfully.")
+                    await dm_tracker[message.author.id]["commandchannel"].send(">>> Spell attack " + dm_tracker[message.author.id]["parameters"]+ " edited successfully.")
                 else:
                     await direct_message(message, "Database error!")           
             elif current_command == 'editstats':
@@ -3393,7 +3692,7 @@ async def on_message(message):
                 result = await commit_sql(create_char_entry, char_tuple)
                 if result:
                     await direct_message(message, "Character " + str(char_name) + " successfully updated.")
-                    await dm_tracker[message.author.id]["commandchannel"].send("Character " + str(char_name) + " successfully updated.")
+                    await dm_tracker[message.author.id]["commandchannel"].send(">>> Character " + str(char_name) + " successfully updated.")
                 else:
                     await reply_message(message, "Database error!")
             elif current_command == 'newvendor':
@@ -3404,7 +3703,7 @@ async def on_message(message):
                 result = await insert_into(message, "Vendors")
                 if result:
                     await direct_message(message, "Vendor " + field_dict[0] + " created successfully.")
-                    await dm_tracker[message.author.id]["commandchannel"].send("Vendor " + field_dict[0] + " created successfully.")
+                    await dm_tracker[message.author.id]["commandchannel"].send(">>> Vendor " + field_dict[0] + " created successfully.")
                 else:
                     await direct_message(message, "Database error!")
             elif current_command == 'newcustomcommand':
@@ -3414,7 +3713,7 @@ async def on_message(message):
                 if result:
                     custom_commands[server_id][field_dict[0]] = list(field_dict[1].split('|'))
                     await direct_message(message, "Custom command " + field_dict[0] + " created successfully.")
-                    await dm_tracker[message.author.id]["commandchannel"].send("Custom command " + field_dict[0] + " created successfully.")
+                    await dm_tracker[message.author.id]["commandchannel"].send(">>> Custom command " + field_dict[0] + " created successfully.")
                 else:
                     await direct_message(message, "Database error!")                    
             elif current_command == 'addvendoritem':
@@ -3424,7 +3723,7 @@ async def on_message(message):
                 item_list = item_list + str(dm_tracker[message.author.id]["fielddict"][1])
                 result = await commit_sql("UPDATE Vendors SET UserId=%s,ItemList=%s WHERE Id=%s;",(str(message.author.id), item_list, field_dict[0]))
                 if result:
-                    await dm_tracker[message.author.id]["commandchannel"].send("Vendor updated successfully.")
+                    await dm_tracker[message.author.id]["commandchannel"].send(">>> Vendor updated successfully.")
                     await direct_message(message, "Vendor updated successfully.")
             elif current_command == 'newarmory':
                 dm_tracker[message.author.id]["fielddict"].remove('end')
@@ -3434,7 +3733,7 @@ async def on_message(message):
                 result = await insert_into(message, "Armory")
                 if result:
                     await direct_message(message, "Armory " + field_dict[0] + " updated successfully.")
-                    await dm_tracker[message.author.id]["commandchannel"].send("Armory " + field_dict[0] + " createed successfully.")
+                    await dm_tracker[message.author.id]["commandchannel"].send(">>> Armory " + field_dict[0] + " createed successfully.")
                 else:
                     await direct_message(message, "Database error!")
             elif current_command == 'addarmoryitem':
@@ -3444,7 +3743,7 @@ async def on_message(message):
                 item_list = item_list + str(dm_tracker[message.author.id]["fielddict"][1])
                 result = await commit_sql("UPDATE Armory SET UserId=%s,ArmamentList=%s WHERE Id=%s;",(str(message.author.id), item_list, field_dict[0]))
                 if result:
-                    await dm_tracker[message.author.id]["commandchannel"].send("Armory updated successfully.")
+                    await dm_tracker[message.author.id]["commandchannel"].send(">>> Armory updated successfully.")
                     await direct_message(message, "Armory updated successfully.")
                 return                    
             await initialize_dm(message.author.id)        
@@ -3549,13 +3848,13 @@ async def on_message(message):
             fields = " "
             if parsed_string == "":
                 parsed_string = "Main Help"
-            response = "`Welcome to RP Mastermind, the Discord RP Bot Master!`\n\n*Using Help:*\n\nType =info or =help followed by one of these categories to see a list of commands, such as **=info setup.**. To see help for a specific command, type =info command <name>, such as **=info command newchar**\n\nFor quick references, use **=cheatsheet** **setup**, **spar**, or **encounter**.\n\n**COMMAND CATEGORIES**\n\n`general`: Not commands, but information on how the bot works.\n\n`setup`: Commands for getting the bot running.\n\n`characters`: Commands for managing characters.\n\n`alts`: Commands for managing Alts.\n\n`npcs`: Commands for managing NPCs.\n\n`monsters` Commands for managing monsters.\n\n`items`: Commands for managing equipment.\n\n`encounters`: Commands for managing encounters.\n\n`melee` Commands for managing melee attacks.\n\n`spells` Commands for managing spells.\n\n`sparring`: Commands for managing sparring.\n\n`inventory`: Commands for managing inventory.\n\n`economy`: Commands for buying, selling and the guild bank.\n\n`vendors`: Commands for creating, editing and deleting vendors and adding items to them.\n\n`buffs`: Commands for adding, editing, deleting, and giving and taking away buffs.\n\n`armaments`: Commands for managing armaments\n\n`armories`: Commands for managing armories.\n\n`fun`: Commands for old time RP fun.\n\n`customcommands`: Commands for creating custom dice responses.\n\nMore advanced documentation can be found on the wiki: https://github.com/themidnight12am/rpmastermind/wiki\n\nSupport server: https://discord.gg/3CKdNPx"
+            response = "`Welcome to RP Mastermind, the Discord RP Bot Master!`\n\n*Using Help:*\n\nType =info or =help followed by one of these categories to see a list of commands, such as **=info setup.**. To see help for a specific command, type =info command <name>, such as **=info command newchar**\n\nFor quick references, use **=cheatsheet** **setup**, **spar**, **player**, or **encounter**.\n\n**COMMAND CATEGORIES**\n\n`general`: Not commands, but information on how the bot works.\n\n`setup`: Commands for getting the bot running.\n\n`characters`: Commands for managing characters.\n\n`alts`: Commands for managing Alts.\n\n`npcs`: Commands for managing NPCs.\n\n`monsters` Commands for managing monsters.\n\n`items`: Commands for managing equipment.\n\n`encounters`: Commands for managing encounters.\n\n`melee` Commands for managing melee attacks.\n\n`spells` Commands for managing spells.\n\n`sparring`: Commands for managing sparring.\n\n`inventory`: Commands for managing inventory.\n\n`economy`: Commands for buying, selling and the guild bank.\n\n`vendors`: Commands for creating, editing and deleting vendors and adding items to them.\n\n`buffs`: Commands for adding, editing, deleting, and giving and taking away buffs.\n\n`armaments`: Commands for managing armaments\n\n`armories`: Commands for managing armories.\n\n`fun`: Commands for old time RP fun.\n\n`customcommands`: Commands for creating custom dice responses.\n\nMore advanced documentation can be found on the wiki: https://github.com/themidnight12am/rpmastermind/wiki\n\nSupport server: https://discord.gg/3CKdNPx"
             if parsed_string == 'setup':
                 response = "**SETUP COMMANDS**\n\n\n\n`=createroles`,`=setadminrole`,`=newsetup`,`=editsetup`,`=setgmrole,`=setnpcrole`,`=listroles`,`=addadmin`, `=addnpcuser`=addplayer`,`=addgm`,`=deleteadmin`,`=deletenpcuser`,`=deleteplayer`,`=deletegm`,`=resetserver`,`=invite`"
 #                fields = "**SERVER SETTINGS FIELDS**\n\n\n\n`GuildBankBalance:` The total currency in the guild bank. Used for determining how much can be sold back to the guild or how much currency can be given by GMs.\n\n`StartingHealth:` The amount of health new characters start with.\n\n`StartingMana:` The amount of stamina new characters start with.\n\n`StartingAttack:` The amount of attack power new characters start with for melee.\n\n`StartingDefense:` The amount of defense against total damage a character starts with.\n\n`StartingMagicAttack:` The amount of spell power a new character starts with.\n\n`StartingAgility:` The amount of agility a new character starts with.\n\n`StartingIntellect:` The amount of intellect a new character starts with (unused).\n\n  `StartingCharisma:` The amount of charisma a new character starts with (unused).\n\n`HealthLevelRatio:` How many times the level a character's health is set to.\n\n`ManaLevelRatio:` How many times the level a character's mana is set to.\n\n`StaminaLevelRatio:` How many times the level a character's stamina is set to.\n\n`XPLevelRatio:` How many times a level XP must total to before a new level is granted.\n\n`HealthAutoHeal:` How much health is restored per turn during spars and encounters for characters as a multiplier of health. Set to zero for no restores, or less than 1 for partial autoheal (such as 0.1 for 10% per turn).\n\n`ManaAutoHeal:` How much mana restores per turn.\n\n`StaminaAutoHeal:` How much stamina restores per turn.\n\n"
                 fields = "For server settings fields, see: https://github.com/themidnight12am/rpmastermind/wiki#server-settings-fields\n\n"
             elif parsed_string == 'characters':
-                response = "**CHARACTER COMMANDS**\n\n\n\n`=newchar`,`=editstats`,`=editchar`,`=editcharinfo`,`=deletechar`,`=getcharskills`,`=getunapprovedprofile`,`=getcharprofile`,`=listallchars` ,`=addstatpoints`,`=givestatpoints`,`=approvechar`,`=denychar`, `=getchararms`,`=getcharequipped`,`=newrandomchar`,`=givexp`"
+                response = "**CHARACTER COMMANDS**\n\n\n\n`=newchar`,`=editstats`,`=editchar`,`=editcharinfo`,`=deletechar`,`=getcharskills`,`=getunapprovedprofile`,`=profile`,`=listallchars` ,`=addstatpoints`,`=givestatpoints`,`=approvechar`,`=denychar`, `=armaments`,`=equipped`,`=newrandomchar`,`=givexp`"
 #                fields = "**CHARACTER FIELDS**\n\n\n\n`CharacterName:` The given full name of the character.\n\n`Age:` The age of the character.\n\n`Race:` The race of the character (human, vampire, etc)\n\n`Gender:` The gender, if known of the character (male, female, trans, etc).\n\n`Height:` The usual height of the character, if known (5'5'', 10 cubits, etc).\n\n`Weight:` The mass on the current world of the character (180 lbs, five tons, etc).\n\n`PlayedBy:` The name of the artist, human representation, actor, etc who is used to show what the character looks like (Angelina Jolie, Brad Pitt, etc).\n\n`Origin:` The hometown or homeworld of the character (Texas, Earth, Antares, etc).\n\n`Occupation:` What the character does for a living, if applicable (blacksmith, mercenary, prince, etc).\n\n`PictureLink:` A direct upload or http link to a publicly accessible picture on the Internet. Google referral links don't always work.\n\n\n\n**ADDITIONAL CHARACTER INFO**\n\n\n\n`Personality:` Free text description of the character's personality (aloof, angry, intelligent)\n\n`Biography:` Any information about the character's history (tragic past, family story, etc).\n\n`Description:` Free text physical description of the character, especially if no play by or picture link is provided, or a description of alternate forms (such as wolf form, final form, etc).\n\n`Strengths:` Free text description of what the character is good at (drawing, melee combat, science, magic.\n\n`Weaknesses:` Free text description of what weaknesses the character has (silver, light, Kryptonite, etc).\n\n`Powers:` The supernatural abilities the character has (such as magic, fire, telepathy.\n\n`Skills:` Any speciality skills the character has (ace sniper, expert in arcane arts, engineer PhD, etc).\n\n\n\n**CHARACTER STATISTICS**\n\n\n\n`Attack:` The base number for melee combat damage. Multiplied by the melee damage multiplier.\n\n`Defense:` The total defense against all damage the character has. Subtracted from damage.\n\n`MagicAttack:` The base number for spell damage. Multiplied by the spell damage multiplier.\n\n`Health:` The amount of health a character has. When this reaches zero during sparring or monster encounters, the player is out of the group. Can be restored by buffs or items. Base is 20 times the level, and restores by 10% each turn.\n\n`Level:` The character's current level, which determines health, mana and stamina. Also determines the experience gained by combat with characters or monsters of different levels.\n\n`Experience:` The amount of experience a character has. To level up, a character must earn 20 times their current level in experience points.\n\n`Stamina:` The amount of stamina a character has for melee combat. When this reaches zero, a chracter must pass or use a spell or item. Heals by 20% every turn.\n\n`Mana:` The amount of mana for spells. When this reaches zero, a character must pass, use melee attacks or an item. Heals for 20% every turn.\n\n`Agility:` How likely a character is to dodge an attack. Higher agility means greater speed.\n\n`Intellect:` Currently unused.\n\n`Charisma:` Currently unused.\n\n`Currency:` How much money a character has for purchasing items.\n\n"
                 fields = "For character fields, see: https://github.com/themidnight12am/rpmastermind/wiki#character-profile-fields\n\nFor character status fields, see: https://github.com/themidnight12am/rpmastermind/wiki#character-statistic-fields\n\nFor character additional info fields, see: https://github.com/themidnight12am/rpmastermind/wiki#character-additional-information-fields\n\n"
             elif parsed_string == 'alts':
@@ -3596,7 +3895,7 @@ async def on_message(message):
                 fields = "For vendor fields, see: https://github.com/themidnight12am/rpmastermind/wiki#vendor-fields\n\n "
  #               fields = "**VENDOR FIELDS**\n\n\n\n`VendorName:` The name of the vendor as it appears in buying items.\n\n`ItemList:` A comma delimited list of item IDs available for purchase.\n\n"
             elif parsed_string == 'fun':                
-                response = "**FUN AND UTILITY COMMANDS**\n\n`=lurk`,`=ooc` ,`=randomooc,`=roll`,`=me,`=newscene`,`=endscene` ,`=pause` ,`=unpause`,`=postnarr`"
+                response = "**FUN AND UTILITY COMMANDS**\n\n`=lurk`,`=ooc` ,`=randomooc,`=roll`,`=me,`=newscene`,`=endscene` ,`=pause` ,`=unpause`,`=postnarr`,`=enter`,`=exit`"
             elif parsed_string == 'general':
                 response = "**GENERAL INFO**\n\nWelcome to the RP Mastermind, a multipurpose Discord bot for managing chat-based or gaming server roleplaying. RP Mastermind supports the following features:\n\n• Character profiles\n• Character statistics such as melee and spell attack power, mana, stamina and agility\n• Monsters and encounters\n• Melee attacks for characters\n• Spells for characters\n• Buffs for characters\n• Armaments and armories, and equippable armaments with status modifiers.\n• Items and inventory\n• Trading items and currency between characters\n• Vendors and buying and selling from them\n• Guild bank\n• Experience and leveling\n• Mass sparring between characters\n• Dice rolls\n• OOC bracketing\n• Non-player character posting (NPCs)\n• Character application and approval\n• Custom server settings for leveling and restoration during encounters\n• Four levels of access and control\n• Random OOC fun commands\n• Option for loading default items, spells, melee attacks, vendors and monsters\n\n**ROLES**\n\n`Admin:` The admin can run all commands of the bot, such as adding and deleting spells or items. The server owner must set the admin role.\n\n`Game Moderator:` The game moderator is able to start random encounters, add or delete monsters, give money, and give items.\n\n`Alt Manager:` The Alt manager is able to create, edit and delete Alts.\n\n`Player:` A player is able to add, edit, and delete their character profile, and play as their character, and post as Alts if allowed, and buy and sell items, and trade with other players. An admin role user must approve new characters.\n\n**LEVELING**\n\nLeveling is granted by gaining experience. Experience is gained by random encounters, sparring, or granted by a game moderator. A new level is achieved when experience totals twenty times the current level (default).\n\nFor more information, see the wiki: https://github.com/themidnight12am/rpmastermind/wiki#general-information\n\n"
             elif parsed_string == 'buffs':
@@ -3650,6 +3949,11 @@ async def on_message(message):
                     role_needed = "Admin"
                     params = "None"
                     example = "=newsetup"
+                elif help_command == 'inventory':
+                    command_does = "Show the item inventory of the named character."
+                    role_needed = "None"
+                    params = "Character Name"
+                    example = "=inventory Richard Stallman"                    
                 elif help_command == 'listroles':
                     command_does = "Show the names of the bot roles currently set on this server."
                     role_needed = "None"
@@ -3764,11 +4068,11 @@ async def on_message(message):
                     params = "None"
                     example = "=mysparstats"
                    
-                elif help_command == 'getcharprofile':
+                elif help_command == 'profile':
                     command_does = "View a character's entire approved profile."
                     role_needed = "None"
                     params = "Character Name"
-                    example = "=getcharprofile Benjamin Dover"
+                    example = "=profile Benjamin Dover"
                 elif help_command == 'editcharinfo':
                     command_does = "Edit a character's additional information, such as biography, powers, and skills in DMs."
                     role_needed = "Player"
@@ -3799,16 +4103,16 @@ async def on_message(message):
                     role_needed = "Game Moderator"
                     params = "None"
                     example = "=givestatpoints"
-                elif help_command == 'getchararms':
+                elif help_command == 'armaments':
                     command_does = "List the armaments currently in a character's inventory."
                     role_needed = "None"
                     params = "Character Name"
-                    example = "=getchararms Valerie Firebow"
-                elif help_command == 'getcharequipped':
+                    example = "=armaments Valerie Firebow"
+                elif help_command == 'equipped':
                     command_does = "Show a character's current slots and their equipped armaments."
                     role_needed = "None"
                     params = "Character Name"
-                    example = "=getcharequipped Jason Bourne"
+                    example = "=equipped Jason Bourne"
                 elif help_command == 'newalt':
                     command_does = "Create a new alt using the DM system (character name, picture link, shortcut)."
                     role_needed = "NPC User"
@@ -4338,6 +4642,16 @@ async def on_message(message):
                     role_required = "None"
                     params = "Text to post"
                     example = "=postnarr It was a dark and stormy night."
+                elif help_command == 'enter':
+                    command_does = "Post *Player name has entered* as the bot narrator to indicate a character has entered."
+                    role_required = "None"
+                    params = "None"
+                    example = "=enter"  
+                elif help_command == 'exit':
+                    command_does = "Post *Player name has exited* as the bot narrator to indicate a character has exited."
+                    role_required = "None"
+                    params = "None"
+                    example = "=exit"                      
                 else:
                     
                     command_does = "Command Not Found!"
@@ -4383,30 +4697,66 @@ async def on_message(message):
         try:
             guild_settings[message.guild.id]["AdminRole"]
         except:
-            await reply_message(message, "Admin role not set! Please set an admin role using the command =setadminrole @Role")
             return
-        if message.guild and re.search(r"cast|melee|weapon", message.content):
+        if message.guild and re.search(r"cast|melee|weapon|disarm|buff", message.content):
+            
             if mass_spar_event[message.guild.id] and message.author.id in list(mass_spar_chars[message.guild.id].keys()):
                 server_id = message.guild.id
                 user_id = message.author.id
-                if mass_spar_chars[server_id][user_id]["Health"] < mass_spar_chars[server_id][user_id]["MaxHealth"]:
-                    health_gained = int(guild_settings[server_id]["HealthAutoHeal"] * mass_spar_chars[server_id][user_id]["MaxHealth"])
-                    mass_spar_chars[server_id][user_id]["Health"] = mass_spar_chars[server_id][user_id]["Health"] + health_gained
-                else:
-                    health_gained = "0 (at max)"
-                if mass_spar_chars[server_id][user_id]["Mana"] < mass_spar_chars[server_id][user_id]["MaxMana"]:
-                    mana_gained = int(guild_settings[server_id]["ManaAutoHeal"] * mass_spar_chars[server_id][user_id]["Mana"])
-                    mass_spar_chars[server_id][user_id]["Mana"] = mass_spar_chars[server_id][user_id]["Mana"] + mana_gained
-                else:
-                    mana_gained = "0 (at max)"
-                    
-                if mass_spar_chars[server_id][user_id]["Stamina"] < mass_spar_chars[server_id][user_id]["MaxStamina"]:
-                    stamina_gained = int(guild_settings[server_id]["StaminaAutoHeal"] * mass_spar_chars[server_id][user_id]["Stamina"])
-                    mass_spar_chars[server_id][user_id]["Stamina"] = mass_spar_chars[server_id][user_id]["Stamina"] + stamina_gained
-                else:
-                    stamina_gained = "0 (at max)"
-                    
-                await reply_message(message, mass_spar_chars[server_id][user_id]["CharName"] + " automatically gained **" + str(health_gained) + "** health, **"     + str(mana_gained) + "** mana and **" + str(stamina_gained) + "** stamina this turn!")
+                records = await select_sql("""SELECT IFNULL(Status,'None') FROM CharacterProfiles WHERE Id=%s;""",(str(mass_spar_chars[server_id][user_id]["CharId"]),))
+                for row in records:
+                    pulled_stat = row[0].split('=')
+                
+                if pulled_stat[0] == 'Poison':
+                    mass_spar_chars[server_id][user_id]["Health"] = mass_spar_chars[server_id][user_id]["Health"] + int(pulled_stat[1])
+                    await reply_message(message, mass_spar_chars[server_id][user_id]["CharName"] + " is poisoned and lost **" + str(pulled_stat[1]) + "** health this turn!")
+                elif pulled_stat[0] == 'Stunned':
+                    pulled_stat[1] = int(pulled_stat[1]) - 1
+                    if pulled_stat[1] < 1:
+                        result = await commit_sql("""UPDATE CharacterProfiles SET Status=%s WHERE Id=%s;""",(str('None=0'),str(mass_spar_chars[server_id][user_id]["CharId"])))
+                        await reply_message(message, mass_spar_chars[server_id][user_id]["CharName"] + " is no longer stunned!")
+                    else:
+                        recover_chance = random.randint(1,100)
+                        if recover_chance <= 20:
+                            await reply_message(message, mass_spar_chars[server_id][user_id]["CharName"] + " has recovered from the stun!")
+                            result = await commit_sql("""UPDATE CharacterProfiles SET Status=%s WHERE Id=%s;""",(str('None=0'),str(mass_spar_chars[server_id][user_id]["CharId"])))
+                        else:
+                            result = await commit_sql("""UPDATE CharacterProfiles SET Status=%s WHERE Id=%s;""",(str('Stunned=' + str(pulled_stat[1])),str(mass_spar_chars[server_id][user_id]["CharId"])))
+                            await reply_message(message, mass_spar_chars[server_id][user_id]["CharName"] + " is stunned and cannot attack! Use **=pass** if you have no items to use!")
+                            return
+                elif pulled_stat[0] == 'Asleep':
+                    pulled_stat[1] = int(pulled_stat[1]) - 1
+                    if pulled_stat[1] < 1:
+                        result = await commit_sql("""UPDATE CharacterProfiles SET Status=%s WHERE Id=%s;""",(str('None=0'),str(mass_spar_chars[server_id][user_id]["CharId"])))
+                        await reply_message(message, mass_spar_chars[server_id][user_id]["CharName"] + " is no longer asleep!")
+                    else:
+                        recover_chance = random.randint(1,100)
+                        if recover_chance <= 50:
+                            await reply_message(message, mass_spar_chars[server_id][user_id]["CharName"] + " has awakened on their own!")
+                            result = await commit_sql("""UPDATE CharacterProfiles SET Status=%s WHERE Id=%s;""",(str('None=0'),str(mass_spar_chars[server_id][user_id]["CharId"])))
+                        else:
+                            result = await commit_sql("""UPDATE CharacterProfiles SET Status=%s WHERE Id=%s;""",(str('Asleep=' + str(pulled_stat[1])),str(mass_spar_chars[server_id][user_id]["CharId"])))
+                            await reply_message(message, mass_spar_chars[server_id][user_id]["CharName"] + " is asleep and cannot attack! Use **=pass** if you have no items to use!")
+                            return                        
+                elif pulled_stat[0] == 'None':    
+                    if mass_spar_chars[server_id][user_id]["Health"] < mass_spar_chars[server_id][user_id]["MaxHealth"]:
+                        health_gained = int(guild_settings[server_id]["HealthAutoHeal"] * mass_spar_chars[server_id][user_id]["MaxHealth"])
+                        mass_spar_chars[server_id][user_id]["Health"] = mass_spar_chars[server_id][user_id]["Health"] + health_gained
+                    else:
+                        health_gained = "0 (at max)"
+                    if mass_spar_chars[server_id][user_id]["Mana"] < mass_spar_chars[server_id][user_id]["MaxMana"]:
+                        mana_gained = int(guild_settings[server_id]["ManaAutoHeal"] * mass_spar_chars[server_id][user_id]["Mana"])
+                        mass_spar_chars[server_id][user_id]["Mana"] = mass_spar_chars[server_id][user_id]["Mana"] + mana_gained
+                    else:
+                        mana_gained = "0 (at max)"
+                        
+                    if mass_spar_chars[server_id][user_id]["Stamina"] < mass_spar_chars[server_id][user_id]["MaxStamina"]:
+                        stamina_gained = int(guild_settings[server_id]["StaminaAutoHeal"] * mass_spar_chars[server_id][user_id]["Stamina"])
+                        mass_spar_chars[server_id][user_id]["Stamina"] = mass_spar_chars[server_id][user_id]["Stamina"] + stamina_gained
+                    else:
+                        stamina_gained = "0 (at max)"
+                        
+                    await reply_message(message, mass_spar_chars[server_id][user_id]["CharName"] + " automatically gained **" + str(health_gained) + "** health, **"     + str(mana_gained) + "** mana and **" + str(stamina_gained) + "** stamina this turn!")
             if server_encounters[message.guild.id] and message.author.id in list(server_party_chars[message.guild.id].keys()):
                 server_id = message.guild.id
                 user_id = message.author.id
@@ -4556,6 +4906,11 @@ async def on_message(message):
                 
             elif parsed_string == 'encounter':
                 embed.add_field(name="Encounter Command Quick Reference",value="**Game Moderator:**\n=newparty @user1 @user2\n\n**Player:**\n=setencounterchar\n\n**Game Moderator:**\n=encountermonster\n\n**Player:**\n=meleemonster/=weaponmonster/=castmonster\n=buff/=useitem\n\n**Game Moderator:**\n=monsterattack\n=abortencounter\n=disbandparty")
+            elif parsed_string == 'player':
+                embed.add_field(name="Character Command Quick Reference",value="=newchar\n=editchar CharacterName\n=deletechar CharacterName\n=equiparmament\n=unequiparmament\n=editcharinfo CharacterName\n=addstatpoints\n=profile\n=stats\n")
+                embed.add_field(name="Economy Command Quick Reference",value="=buy\n=sell\n=buyarms\n=sellarms\n=trade\n=tradearms")
+                embed.add_field(name="Inventory Command Quick Reference",value="=useitem\n=inventory CharacterName")
+             
             else:
                 pass
             await message.channel.send(embed=embed)
@@ -4620,6 +4975,10 @@ async def on_message(message):
                 return
             number_of_dice = m.group(1)
             dice_sides = m.group(2)
+            if int(number_of_dice) > 100:
+                await reply_message(message, "You can't specify more than 100 dice to roll!")
+                return
+                
             response = "**Dice roll:**\n\n"
             sum = 0
             for x in range(0,int(number_of_dice)):
@@ -4774,7 +5133,7 @@ async def on_message(message):
                 
                 await reply_message(message, "Please check your DMs for instructions on how to create a new character, <@" + str(message.author.id) + ">.")
                 
-                await direct_message(message, "You have requested a new default character! Please type in the response the **first and last names of the character**, and then enter each field as a reply to the DMs. When you have filled out all fields, the character will be created!")
+                await direct_message(message, "You have requested a new default character! Please type in the name you want, and then fill out the fields that appear.")
         elif command == 'newrandomchar':
             if not role_check(guild_settings[message.guild.id]["PlayerRole"], message.author):
                 await reply_message(message, "You must have the player role to create a new random character.")
@@ -4857,11 +5216,11 @@ async def on_message(message):
             if message.author.id not in dm_tracker.keys():
                 await initialize_dm(message.author.id)
             dm_tracker[message.author.id]["currentcommand"] = 'newrandomchar'
-            dm_tracker[message.author.id]["fieldlist"] = ["CharacterName","Age","Race","Gender","Height","Weight","Playedby","Origin","Occupation","PictureLink","Strengths","Weaknesses","Powers","Skills","Personality","Attack","Defense","MagicAttack","Health","Mana","Stamina","Agility","Intellect","Charisma","Currency","Level","Experience"]
+            dm_tracker[message.author.id]["fieldlist"] = ["CharacterName","Age","Race","Gender","Height","Weight","Playedby","Origin","Occupation","PictureLink","Strengths","Weaknesses","Powers","Skills","Personality","Attack","Defense","MagicAttack","Health","Mana","Stamina","Agility","Intellect","Charisma","Currency","Level","Experience","StatPoints"]
           
             dm_tracker[message.author.id]["currentfield"] = 0
             server_id = message.guild.id
-            dm_tracker[message.author.id]["fielddict"] = [first_name + " " + last_name, str(age), race, gender, str(height_feet) + "'" + str(height_inches) + r"\"", str(weight) + " lbs", "None", origin, occupation, "None", strengths, weaknesses, powers, skills, personality, str(guild_settings[server_id]["StartingAttack"]), str(guild_settings[server_id]["StartingDefense"]), str(guild_settings[server_id]["StartingMagicAttack"]), str(guild_settings[server_id]["StartingHealth"]), str(guild_settings[server_id]["StartingMana"]), str(guild_settings[server_id]["StartingStamina"]), str(guild_settings[server_id]["StartingAgility"]), str(guild_settings[server_id]["StartingIntellect"]), str(guild_settings[server_id]["StartingCharisma"]),str(1000),str(1),str(0)] 
+            dm_tracker[message.author.id]["fielddict"] = [first_name + " " + last_name, str(age), race, gender, str(height_feet) + "'" + str(height_inches) + r"\"", str(weight) + " lbs", "None", origin, occupation, "None", strengths, weaknesses, powers, skills, personality, str(guild_settings[server_id]["StartingAttack"]), str(guild_settings[server_id]["StartingDefense"]), str(guild_settings[server_id]["StartingMagicAttack"]), str(guild_settings[server_id]["StartingHealth"]), str(guild_settings[server_id]["StartingMana"]), str(guild_settings[server_id]["StartingStamina"]), str(guild_settings[server_id]["StartingAgility"]), str(guild_settings[server_id]["StartingIntellect"]), str(guild_settings[server_id]["StartingCharisma"]),str(1000),str(1),str(0),str(0)] 
             dm_tracker[message.author.id]["server_id"] = message.guild.id
             dm_tracker[message.author.id]["commandchannel"] = message.channel
             
@@ -4930,19 +5289,18 @@ async def on_message(message):
             response = "Please choose a character from the below to give available points to:\n\n" + menu
             await direct_message(message, response)
             await reply_message(message, "Please see your DMs for instructions on how to give stat points, <@" + str(message.author.id) + ">.")  
-            
-        elif (command == 'getcharprofile'):
+        elif (command == 'stats'):
   
             char_name = parsed_string
             
             if not char_name:
                 await reply_message(message, "No character name specified!")
                 return
-            get_character_profile = """SELECT CharacterName,IFNULL(Age,' '),IFNULL(Race,' '), IFNULL(Gender,' '), IFNULL(Height,' '), IFNULL(Weight,' '), IFNULL(PlayedBy,' '), IFNULL(Origin,' '), IFNULL(Occupation,' '), UserId,Attack,Defense,MagicAttack,Health,Mana,Level,Experience,Stamina,Agility,Intellect,Charisma, IFNULL(Biography,' '), IFNULL(Currency,' '), IFNULL(Description,' '), IFNULL(Personality,' '), IFNULL(Powers,' '), IFNULL(Strengths,' '), IFNULL(Weaknesses,' '), IFNULL(Skills,' '), IFNULL(PictureLink,' ') FROM CharacterProfiles WHERE CharacterName=%s  AND ServerId=%s;"""
+            get_character_profile = """SELECT CharacterName,IFNULL(Age,' '),IFNULL(Race,' '), IFNULL(Gender,' '), IFNULL(Height,' '), IFNULL(Weight,' '), IFNULL(PlayedBy,' '), IFNULL(Origin,' '), IFNULL(Occupation,' '), UserId,Attack,Defense,MagicAttack,Health,Mana,Level,Experience,Stamina,Agility,Intellect,Charisma,StatPoints,Currency,PictureLink FROM CharacterProfiles WHERE CharacterName=%s  AND ServerId=%s;"""
             char_tuple = (char_name, str(message.guild.id))
             
             records = await select_sql(get_character_profile, char_tuple)
-            if len(records) < 1:
+            if not records:
                 await reply_message(message, "No character found by that name!")
                 return
             embed = discord.Embed(title="Character Profile for " + char_name)
@@ -4950,8 +5308,8 @@ async def on_message(message):
 
             
             for row in records:
-                if re.search(r"http",row[29]):
-                    embed.set_thumbnail(url=row[29])
+                if re.search(r"http",row[23]):
+                    embed.set_thumbnail(url=row[23])
                 embed.add_field(name="Mun:",value="<@" + str(row[9]) + ">")
                 embed.add_field(name="Age:",value=str(row[1]))
                 embed.add_field(name="Race:",value=row[2])
@@ -4974,6 +5332,96 @@ async def on_message(message):
                 embed2.add_field(name="Intellect:", value=str(row[19]))
                 embed2.add_field(name="Charisma:", value=str(row[20]))
                 embed2.add_field(name="Currency:",value=str(row[22]))
+                embed2.add_field(name="Stat Points:",value=str(row[21]))
+                await log_message(str(embed2))
+
+            temp_webhook = await message.channel.create_webhook(name='Chara-Tron')
+            await temp_webhook.send(embeds=[embed2],username="RP Mastermind")
+            await temp_webhook.delete()             
+        elif (command == 'profile'):
+  
+            char_name = parsed_string
+            
+            if not char_name:
+                await reply_message(message, "No character name specified!")
+                return
+            get_character_profile = """SELECT CharacterName,IFNULL(Age,' '),IFNULL(Race,' '), IFNULL(Gender,' '), IFNULL(Height,' '), IFNULL(Weight,' '), IFNULL(PlayedBy,' '), IFNULL(Origin,' '), IFNULL(Occupation,' '), UserId,Attack,Defense,MagicAttack,Health,Mana,Level,Experience,Stamina,Agility,Intellect,Charisma, IFNULL(Biography,' '), IFNULL(Currency,' '), IFNULL(Description,' '), IFNULL(Personality,' '), IFNULL(Powers,' '), IFNULL(Strengths,' '), IFNULL(Weaknesses,' '), IFNULL(Skills,' '), IFNULL(PictureLink,' '),StatPoints,IFNULL(Status,'None'),Id FROM CharacterProfiles WHERE CharacterName=%s  AND ServerId=%s;"""
+            char_tuple = (char_name, str(message.guild.id))
+            
+            records = await select_sql(get_character_profile, char_tuple)
+            if len(records) < 1:
+                await reply_message(message, "No character found by that name!")
+                return
+            embed = discord.Embed(title="Character Profile for " + char_name)
+            embed2 = discord.Embed(title="Character Statistics for " + char_name)
+
+            
+            for row in records:
+                if re.search(r"http",row[29]):
+                    embed.set_thumbnail(url=row[29])
+                char_id = row[32]
+                stat_records = await select_sql("""SELECT IFNULL(HeadId,'None'),IFNULL(ChestId,'None'),IFNULL(LeftHandId,'None'),IFNULL(RightHandId,'None'),IFNULL(FeetId,'None') FROM CharacterArmaments WHERE CharacterId=%s;""",(str(char_id),))
+                if stat_records:
+                    for stat_row in stat_records:
+                        attack = int(row[10])
+                        defense = int(row[11])
+                        magic_attack = int(row[12])
+                        agility = int(row[18])
+                        intellect = int(row[19])
+                        charisma = int(row[20])
+                        health = int(row[13])
+                        mana = int(row[14])
+                        stamina = int(row[15])
+                        
+                        for x in range(0,len(stat_row)):
+                            item = stat_row[x]
+                            if item != 'None':
+                                arm_records = await select_sql("""SELECT MinimumLevel,Defense,StatMod,Modifier FROM Armaments WHERE Id=%s;""", (str(item),))
+                                for arm_row in arm_records:
+                                    if int(arm_row[0]) <= int(row[15]):
+                                        if arm_row[2] == 'Attack':
+                                            attack = attack + int(arm_row[3])
+                                        elif arm_row[2] == 'Defense':
+                                            defense = defense + int(arm_row[3])
+                                        elif arm_row[2] == 'MagicAttack':
+                                            magic_attack = magic_attack + int(arm_row[3])
+                                        elif arm_row[2] == 'Intellect':
+                                            intellect = intellect + int(arm_row[3])                                                
+                                        elif arm_row[2] == 'Charisma':
+                                            charisma = charisma + int(arm_row[3])                                                
+                                        elif arm_row[2] == 'Agility':
+                                            agility = agility + int(arm_row[3])                                                
+                                        elif arm_row[2] == 'Health':
+                                            health = health + int(arm_row[3])                                                
+                                        elif arm_row[2] == 'Stamina':
+                                            stamina = stamina + int(arm_row[3])                                                
+                                        elif arm_row[2] == 'Mana':
+                                            mana = mana + int(arm_row[3])                                                
+               
+                embed.add_field(name="Player:",value="`" + discord.utils.get(message.guild.members,id =int(row[9])).name + "`")
+                embed.add_field(name="Age:",value=str(row[1]))
+                embed.add_field(name="Race:",value=row[2])
+                embed.add_field(name="Gender:",value=row[3])
+                embed.add_field(name="Height:",value=row[4])
+                embed.add_field(name="Weight:", value=row[5])
+                embed.add_field(name="PlayedBy:", value=row[6])
+                embed.add_field(name="Origin:", value=row[7])
+                embed.add_field(name="Occupation:",value=row[8])
+            
+                embed2.add_field(name="Level:",value=str(row[15]))
+                embed2.add_field(name="Experience:",value=str(row[16]))
+                embed2.add_field(name="Health:",value=str(health))
+                embed2.add_field(name="Mana:", value=str(mana))
+                embed2.add_field(name="Stamina:", value=str(stamina))
+                embed2.add_field(name="Melee Attack:", value=str(attack))
+                embed2.add_field(name="Defense:",value=str(defense))
+                embed2.add_field(name="Spell Power:", value=str(magic_attack))
+                embed2.add_field(name="Agility:", value=str(agility))
+                embed2.add_field(name="Intellect:", value=str(intellect))
+                embed2.add_field(name="Charisma:", value=str(charisma))
+                embed2.add_field(name="Currency:",value=str(row[22]))
+                embed2.add_field(name="Stat Points:",value=str(row[30]))
+                embed2.add_field(name="Status:",value=str(row[31].split('=')[0]))
                 embed3 = discord.Embed(title="Biography",description=row[21])
                 embed4 = discord.Embed(title="Description",description=row[23])
                 embed5 = discord.Embed(title="Personality",description=row[24])
@@ -4982,8 +5430,10 @@ async def on_message(message):
                 embed8 = discord.Embed(title="Weaknesses",description=row[27])
                 embed9 = discord.Embed(title="Skills",description=row[28])
             temp_webhook = await message.channel.create_webhook(name='Chara-Tron')
-            await temp_webhook.send(embeds=[embed, embed2, embed3, embed4, embed5, embed6, embed7, embed8, embed9],username="RP Mastermind")
+            await temp_webhook.send(embeds=[embed, embed2],username="RP Mastermind")
             await temp_webhook.delete() 
+            asyncio.sleep(1)
+            await reply_message(message, "**Biography**:\n\n" + row[21] + "\n**Description:**\n\n" + row[23] + "\n**Personality:**\n\n" + row[24] + "\n**Powers:**\n\n" + row[25] + "\n**Strengths:**\n\n" + row[26] + "\n**Weaknesses:**\n\n" + row[27] + "\n**Skills:**\n\n" + row [28])
 #                await message.channel.send(embed=embed)
  #               await asyncio.sleep(1)
  #               await message.channel.send(embed=embed2)
@@ -5045,7 +5495,7 @@ async def on_message(message):
                 embed9 = discord.Embed(title="Skills",description=row[28])
             temp_webhook = await message.channel.create_webhook(name='Chara-Tron')
             await temp_webhook.send(embeds=[embed, embed2, embed3, embed4, embed5, embed6, embed7, embed8, embed9],username="RP Mastermind")
-            await temp_webhook.delete() 
+         #   await temp_webhook.delete() 
  #               response = "***UNAPPROVED CHARACTER PROFILE***\n\n**Mun:** <@" + str(row[9]) + ">\n**Name:** " + row[0] + "\n**Age:** " + str(row[1]) + "\n**Race:** "+ row[2] + "\n**Gender:** " +row[3] + "\n**Height:** " + row[4] +  "\n**Weight:** " + row[5] +  "\n**Played by:** " + row[6] + "\n**Origin:** " + row[7] + "\n**Occupation:** " + row[8] + "\n\n**STATS**\n\n**Health:** " + str(row[13]) + "\n**Mana:** " + str(row[14]) + "\n**Attack:** " + str(row[10]) + "\n**Defense:** " + str(row[11]) + "\n**Magic Attack Power:** " + str(row[12]) + "\n**Level:** " + str(row[15]) + "\n**Experience:** " + str(row[16]) + "\n**Stamina:** " + str(row[17]) + "\n**Agility:** " + str(row[18]) + "\n**Intellect:** " + str(row[19]) + "\n**Charisma:** " + str(row[20]) + "\n**Currency:** " + str(row[22])+  "\n\n**ADDITIONAL INFORMATION**\n\n**Biography:** " + row[21] + "\n**Description:**" + row[23] + "\n**Personality:** " + row[24] + "\n**Powers:** " + row[25] + "\n**Strengths:** " + row[26] + "\n**Weaknesses:** " + row[27] + "\n**Skills:** " + row[28] + "\n\n**PICTURE**\n\n" + row[29] + "\n"
 #            await reply_message(message, response)        
         elif command == 'editchar':
@@ -5058,7 +5508,7 @@ async def on_message(message):
                 await reply_message(message, "No character name specified!")
                 return                
             char_name = parsed_string
-            current_fields = await select_sql("""SELECT Age,Race,Gender,Height,Weight,Playedby,OrigiLol n,Occupation,PictureLink FROM CharacterProfiles WHERE ServerId=%s AND CharacterName=%s ;""", (str(message.guild.id), char_name))
+            current_fields = await select_sql("""SELECT Age,Race,Gender,Height,Weight,Playedby,Origin,Occupation,PictureLink FROM CharacterProfiles WHERE ServerId=%s AND CharacterName=%s ;""", (str(message.guild.id), char_name))
             if not current_fields:
                 await reply_message(message, "No character found by that name!")
                 return
@@ -5110,7 +5560,7 @@ async def on_message(message):
             
             await reply_message(message, "Please check your DMs for instructions on how to create a new custom command, <@" + str(message.author.id) + ">.")
             
-            await direct_message(message, "You have requested a new custom command! Please type in the response the **command name**, and then enter each field as a reply to the DMs. When you have filled out all fields, the command will be created!")        
+            await direct_message(message, "You have requested a new custom command! Please type in the name you want, and then fill out the fields that appear.")        
         elif command == 'editcustomcommand':
             pass
         elif command == 'deletecustomcommand':
@@ -5289,10 +5739,11 @@ async def on_message(message):
             dm_tracker[message.author.id]["server_id"] = message.guild.id
             dm_tracker[message.author.id]["commandchannel"] = message.channel
             dm_tracker[message.author.id]["parameters"] = message.mentions
+            allowed_ids[message.author.id] = []
             
             await reply_message(message, "Please check your DMs for instructions on how to create a new Alt, <@" + str(message.author.id) + ">.")
             
-            await direct_message(message, "You have requested a new Alt! Please type in the response the **name of the character**, and then enter each field as a reply to the DMs. When you have filled out all fields, the character will be created!")
+            await direct_message(message, "You have requested a new Alt! Please type in the name you want, and then fill out the fields that appear.")
         elif command == 'newnpc':
             if not role_check(guild_settings[message.guild.id]["NPCRole"], message.author):
                 await reply_message(message, "You must be a member of the NPC role to create NPCs!")
@@ -5310,7 +5761,7 @@ async def on_message(message):
             
             await reply_message(message, "Please check your DMs for instructions on how to create a new NPC, <@" + str(message.author.id) + ">.")
             
-            await direct_message(message, "You have requested a new NPC! Please type in the response the **name of the character**, and then enter each field as a reply to the DMs. When you have filled out all fields, the character will be created!")
+            await direct_message(message, "You have requested a new NPC! Please type in the name you want, and then fill out the fields that appear.")
         elif command == 'pause':
             await post_webhook(message.channel, "Narrator", "--scene paused--", narrator_url)
             await message.delete()
@@ -5326,6 +5777,12 @@ async def on_message(message):
         elif command =='postnarr':
             await post_webhook(message.channel, "Narrator", parsed_string, narrator_url)    
             await message.delete()  
+        elif command =='enter':
+            await post_webhook(message.channel, "Narrator", message.author.display_name + " has entered.", narrator_url)    
+            await message.delete()
+        elif command =='exit':
+            await post_webhook(message.channel, "Narrator", message.author.display_name + " has exited.", narrator_url)    
+            await message.delete()                 
         elif command == 'listservers':
             if not await admin_check(message.author.id):
                 await send_message(message, "Nope.")
@@ -5395,7 +5852,7 @@ async def on_message(message):
             if message.author.id not in dm_tracker.keys():
                 await initialize_dm(message.author.id)
             dm_tracker[message.author.id]["currentcommand"] = 'editnpc'
-            dm_tracker[message.author.id]["fieldlist"] = ["CharName","Shortcut","PictureLink"]                                                   
+            dm_tracker[message.author.seid]["fieldlist"] = ["CharName","Shortcut","PictureLink"]                                                   
             dm_tracker[message.author.id]["currentfield"] = 0
             dm_tracker[message.author.id]["fielddict"] = [] 
             dm_tracker[message.author.id]["fieldmeans"] = ["NPC Name","The shortcut to use when posting as the NPC","Direct upload or Internet http link for the NPC"]
@@ -5423,6 +5880,9 @@ async def on_message(message):
             get_alt = """SELECT UsersAllowed, CharName, PictureLink FROM Alts WHERE ServerId=%s AND Shortcut=%s;"""
             alt_tuple = (str(message.guild.id), shortcut)
             records = await select_sql(get_alt, alt_tuple)
+            if not records:
+                await reply_message(message, "An alt with that shortcut does not exist!")
+                return
             for row in records:
                 if str(message.author.id) not in row[0]:
                     await reply_message(message, "<@" + str(message.author.id) + "> is not allowed to use Alt " + row[1] + "!")
@@ -5495,7 +5955,7 @@ async def on_message(message):
             embed = discord.Embed(title="Server Alt List",description="List of alternate names for this server")
             
             records = await select_sql("""SELECT CharName,UsersAllowed,Shortcut FROM Alts WHERE ServerId=%s;""", (str(message.guild.id),))
-            name_re = re.compile(r"Member id=.*?name='(.+?)'")
+            name_re = re.compile(r"Member id=(.*?)name=")
             alts = ""
             name_list = ""
             shortcuts = ""
@@ -5543,6 +6003,7 @@ async def on_message(message):
                 response = response + row[0] + " - " + row[1] + "\n"
                 names = names + row[0] + "\n"
                 shortcuts = shortcuts + row[1] + "\n"
+            embed.add_field(name="NPCs",value=response)
             await message.channel.send(embed=embed)
  #           await reply_message(message, response)            
         elif command == 'newspell':
@@ -5553,8 +6014,8 @@ async def on_message(message):
             if message.author.id not in dm_tracker.keys():
                 await initialize_dm(message.author.id)
             dm_tracker[message.author.id]["currentcommand"] = 'newspell'
-            dm_tracker[message.author.id]["fieldlist"] = ["SpellName","Element","ManaCost","MinimumLevel","DamageMultiplier","Description","PictureLink"]
-            dm_tracker[message.author.id]["fieldmeans"] = ["The name of the spell as it appears in combat or skill lists","The magic element of this spell (currently unused)","The amount of mana drained to perform the spell","The mininum level required to use the spell. A character may know higher-level spells but cannot use them in combat","The value by which MagicAttack is multiplied for total spell damage","A free text description of the spell, such as what it looks like or its effects","A picture of the spell"]
+            dm_tracker[message.author.id]["fieldlist"] = ["SpellName","Element","ManaCost","MinimumLevel","DamageMultiplier","Description","StatusChange","StatusChangedBy","PictureLink"]
+            dm_tracker[message.author.id]["fieldmeans"] = ["The name of the spell as it appears in combat or skill lists","The magic element of this spell (currently unused)","The amount of mana drained to perform the spell","The mininum level required to use the spell. A character may know higher-level spells but cannot use them in combat","The value by which MagicAttack is multiplied for total spell damage","A free text description of the spell, such as what it looks like or its effects","The character status effect field (None,Paralyzed,Stunned,Asleep,DisabledSpell,Confused,Poison,ManaDrain,StaminaDrain)","Amount per turn to change status if applicable (zero if not)","A picture of the spell"]
             dm_tracker[message.author.id]["currentfield"] = 0
             dm_tracker[message.author.id]["fielddict"] = [] 
             dm_tracker[message.author.id]["server_id"] = message.guild.id
@@ -5562,7 +6023,7 @@ async def on_message(message):
             
             await reply_message(message, "Please check your DMs for instructions on how to create a new spell, <@" + str(message.author.id) + ">.")
             
-            await direct_message(message, "You have requested a new spell! Please type in the response the **spell name**, and then enter each field as a reply to the DMs. When you have filled out all fields, the spell will be created!")
+            await direct_message(message, "You have requested a new spell! Please type in the name you want, and then fill out the fields that appear.")
 
             
 
@@ -5574,8 +6035,8 @@ async def on_message(message):
             if message.author.id not in dm_tracker.keys():
                 await initialize_dm(message.author.id)
             dm_tracker[message.author.id]["currentcommand"] = 'newmelee'
-            dm_tracker[message.author.id]["fieldlist"] = ["AttackName","StaminaCost","MinimumLevel","DamageMultiplier","Description","PictureLink"]
-            dm_tracker[message.author.id]["fieldmeans"] = ["The name of the melee attack as it appears in combat (punch, kick, body slam)","How much stamina will be used to perform the attack","The minimum level required for this attack. A character may know a technique at a lower level but cannot use it in combat","How much to multiply the character's base attack power by for total damage","A description of the attack (free text)","A picture of the attack"]
+            dm_tracker[message.author.id]["fieldlist"] = ["AttackName","StaminaCost","MinimumLevel","DamageMultiplier","Description","StatusChange","StatusChangedBy","PictureLink"]
+            dm_tracker[message.author.id]["fieldmeans"] = ["The name of the melee attack as it appears in combat (punch, kick, body slam)","How much stamina will be used to perform the attack","The minimum level required for this attack. A character may know a technique at a lower level but cannot use it in combat","How much to multiply the character's base attack power by for total damage","A description of the attack (free text)","The character status effect field (None,Paralyzed,Stunned,Asleep,DisabledSpell,Confused,Poison,ManaDrain,StaminaDrain)","Amount per turn to change status if applicable (zero if not)","A picture of the attack"]
             dm_tracker[message.author.id]["currentfield"] = 0
             dm_tracker[message.author.id]["fielddict"] = [] 
             dm_tracker[message.author.id]["server_id"] = message.guild.id
@@ -5583,7 +6044,7 @@ async def on_message(message):
             
             await reply_message(message, "Please check your DMs for instructions on how to create a new melee attack, <@" + str(message.author.id) + ">.")
             
-            await direct_message(message, "You have requested a new melee attack! Please type in the response the **attack name**, and then enter each field as a reply to the DMs. When you have filled out all fields, the melee attack will be created!")            
+            await direct_message(message, "You have requested a new melee attack! Please type in the name you want, and then fill out the fields that appear.")            
         elif command == 'newvendor':
             if not role_check(guild_settings[message.guild.id]["AdminRole"], message.author):
                 await reply_message(message, "You must be a member of the admin role to create new vendors!")
@@ -5601,7 +6062,7 @@ async def on_message(message):
             
             await reply_message(message, "Please check your DMs for instructions on how to create a new vendor, <@" + str(message.author.id) + ">.")
             
-            await direct_message(message, "You have requested a new vendor! Please type in the response the **vendor name**, and then enter each field as a reply to the DMs. When you have filled out all fields, the vendor will be created!")
+            await direct_message(message, "You have requested a new vendor! Please type in the name you want, and then fill out the fields that appear.")
         elif command == 'addvendoritem':
             if not role_check(guild_settings[message.guild.id]["AdminRole"], message.author):
                 await reply_message(message, "You must be a member of the admin role to edit vendors!")
@@ -5707,7 +6168,8 @@ async def on_message(message):
             if message.author.id not in dm_tracker.keys():
                 await initialize_dm(message.author.id)
             dm_tracker[message.author.id]["currentcommand"] = 'newarmory'
-            dm_tracker[message.author.id]["fieldlist"] = ["ArmoryName","ArmamentList","PictureLink"]                                                   
+            dm_tracker[message.author.id]["fieldlist"] = ["ArmoryName","ArmamentList","PictureLink"]    
+            dm_tracker[message.author.id]["fieldmeans"] = ["The name of the armory","List of armaments sold","Picture of the armory"]
             dm_tracker[message.author.id]["currentfield"] = 0
             dm_tracker[message.author.id]["fielddict"] = [] 
             dm_tracker[message.author.id]["server_id"] = message.guild.id
@@ -5715,7 +6177,7 @@ async def on_message(message):
             
             await reply_message(message, "Please check your DMs for instructions on how to create a new armory, <@" + str(message.author.id) + ">.")
             
-            await direct_message(message, "You have requested a new armory! Please type in the response the **armory name**, and then enter each field as a reply to the DMs. When you have filled out all fields, the armory will be created!")
+            await direct_message(message, "You have requested a new armory! Please type in the name you want, and then fill out the fields that appear.")
         elif command == 'addarmoryitem':
             if not role_check(guild_settings[message.guild.id]["AdminRole"], message.author):
                 await reply_message(message, "You must be a member of the admin role to edit armories!")
@@ -5756,7 +6218,7 @@ async def on_message(message):
                 await reply_message(message, "No armory name specified!")
                 return               
             armory_name = parsed_string
-            embed = discord.Embed(title="Server Amrmory Listing for " + parsed_string)
+            embed = discord.Embed(title="Server Armory Listing for " + parsed_string)
             records = await select_sql("""SELECT ArmamentList,PictureLink FROM Armory WHERE ArmoryName=%s;""", (armory_name,))
             if not records:
                 await reply_message(message, "No armory found by that name!")
@@ -5773,6 +6235,7 @@ async def on_message(message):
                     arms = arms + item_name[0] + "\n"
                     response = response + item_name[0] + "\n"
             embed.add_field(name="Armaments for sale:",value=arms)
+            await message.channel.send(embed=embed)
             
             # await reply_message(message, response + "\nPicture Link: " + row[1] + "\n")
         elif command == 'listarmories':
@@ -5789,7 +6252,7 @@ async def on_message(message):
             if not parsed_string:
                 await reply_message(message, "No spell name specified!")
                 return
-            records = await select_sql("""SELECT Element,ManaCost,MinimumLevel,DamageMultiplier,Description,PictureLink FROM Spells WHERE ServerId=%s AND SpellName=%s;""", (str(message.guild.id), parsed_string))
+            records = await select_sql("""SELECT Element,ManaCost,MinimumLevel,DamageMultiplier,Description,StatusChange,StatusChangedBy,PictureLink FROM Spells WHERE ServerId=%s AND SpellName=%s;""", (str(message.guild.id), parsed_string))
             if not records:
                 await reply_message(message, "No spell found by that name!")
                 return
@@ -5797,22 +6260,24 @@ async def on_message(message):
             embed = discord.Embed(title="Spell Data for " + parsed_string)
             
             for row in records:
-                if row[5] != 'None':
-                    embed.set_thumbnail(url=str(row[5]))
+                if re.search(r"http",row[7]):
+                    embed.set_thumbnail(url=row[7])
                 embed.add_field(name="Element",value=row[0])
                 embed.add_field(name = "Mana Cost:", value= str(row[1]))
                 embed.add_field(name= "Minimum Level:",value=str(row[2]))
                 embed.add_field(name="Damage Multiplier:", value=str(row[3]))
                 embed.add_field(name="Description:",value=row[4])
-                response = response + "Element: " + row[0] + "\nMana Cost: " + str(row[1]) + "\nMinimum Level: " + str(row[2]) + "\nDamage Multiplier: " + str(row[3]) + "\nDescription: " + row[4] + "\nPicture Link: " + row[5] + "\n"
+                embed.add_field(name="Status Change:",value=row[5])
+                embed.add_field(name="Status Changed By:",value=str(row[6]))
+                response = response + "Element: " + row[0] + "\nMana Cost: " + str(row[1]) + "\nMinimum Level: " + str(row[2]) + "\nDamage Multiplier: " + str(row[3]) + "\nDescription: " + row[4]
             await message.channel.send(embed=embed)
-            
+            asyncio.sleep(1)
  #           await reply_message(message, response)
         elif command == 'listmelee':
             if not parsed_string:
                 await reply_message(message, "No melee name specified!")
                 return
-            records = await select_sql("""SELECT StaminaCost,MinimumLevel,DamageMultiplier,Description,PictureLink FROM Melee WHERE ServerId=%s AND AttackName=%s;""", (str(message.guild.id), parsed_string))
+            records = await select_sql("""SELECT StaminaCost,MinimumLevel,DamageMultiplier,Description,StatusChange,StatusChangedBy,PictureLink FROM Melee WHERE ServerId=%s AND AttackName=%s;""", (str(message.guild.id), parsed_string))
             if not records:
                 await reply_message(message, "No spell found by that name!")
                 return
@@ -5820,13 +6285,15 @@ async def on_message(message):
             
             response = "**MELEE DETAILS**\n\nAttack Name: " + parsed_string + "\n"
             for row in records:
-                if row[4] != 'None':
+                if row[6] != 'None':
                 
-                    embed.set_thumbnail(url=row[4])
+                    embed.set_thumbnail(url=row[6])
                 embed.add_field(name="Stamina Cost:",value=str(row[0]))
                 embed.add_field(name="Minimum Level:",value=str(row[1]))
                 embed.add_field(name="Damage Multipler:",value=str(row[2]))
                 embed.add_field(name="Description:",value=row[3])
+                embed.add_field(name="Status Change:",value=row[4])
+                embed.add_field(name="Status Changed By:",value=str(row[5]))                
                 
                 response = response + "Stamina Cost: " + str(row[0]) + "\nMinimum Level: " + str(row[1]) + "\nDamage Multiplier: " + str(row[2]) + "\nDescription: " + row[3] + "\nPicture Link: " + row[4] + "\n"
             await message.channel.send(embed=embed)
@@ -5839,8 +6306,8 @@ async def on_message(message):
             if message.author.id not in dm_tracker.keys():
                 await initialize_dm(message.author.id)
             dm_tracker[message.author.id]["currentcommand"] = 'newitem'
-            dm_tracker[message.author.id]["fieldlist"] = ["EquipmentName","EquipmentDescription","EquipmentCost","MinimumLevel","StatMod","Modifier","PictureLink"]
-            dm_tracker[message.author.id]["fieldmeans"] = ["The name of the item as it will appear in the inventory and vendor lists","A description of the item","How much currency a player must have to purchase the item", "The minimum level a character must be to use an item. A player may purchase a higher-level item but will not be able to use it until their level is the minimum or higher", "Which character statistic this item modifies (Health, Stamina, Mana, Attack, Defense, MagicAttack, Agility)","The value this item modifies the statistic by. A positive value increases the stat, a negative one decreases it. So a healing potion could be 100, and a cursed item -500","A picture of the item"]                                                 
+            dm_tracker[message.author.id]["fieldlist"] = ["EquipmentName","EquipmentDescription","EquipmentCost","MinimumLevel","StatMod","Modifier","StatusChange","StatusChangedBy","PictureLink"]
+            dm_tracker[message.author.id]["fieldmeans"] = ["The name of the item as it will appear in the inventory and vendor lists","A description of the item","How much currency a player must have to purchase the item", "The minimum level a character must be to use an item. A player may purchase a higher-level item but will not be able to use it until their level is the minimum or higher", "Which character statistic this item modifies (Health, Stamina, Mana, Attack, Defense, MagicAttack, Agility)","The value this item modifies the statistic by. A positive value increases the stat, a negative one decreases it. So a healing potion could be 100, and a cursed item -500","The character status effect field (None,Paralyzed,Stunned,Asleep,DisabledSpell,Confused,Poison,ManaDrain,StaminaDrain)","Amount per turn to change status if applicable (zero if not)","A picture of the item"]                                                 
             dm_tracker[message.author.id]["currentfield"] = 0
             dm_tracker[message.author.id]["fielddict"] = [] 
             dm_tracker[message.author.id]["server_id"] = message.guild.id
@@ -5848,7 +6315,7 @@ async def on_message(message):
             
             await reply_message(message, "Please check your DMs for instructions on how to create a new item, <@" + str(message.author.id) + ">.")
             
-            await direct_message(message, "You have requested a new item! Please type in the response the **name of the item**, and then enter each field as a reply to the DMs. When you have filled out all fields, the item will be created!")
+            await direct_message(message, "You have requested a new item! Please type in the name you want, and then fill out the fields that appear.")
 
         elif command == 'newarmament':
             if not role_check(guild_settings[message.guild.id]["AdminRole"], message.author):
@@ -5859,8 +6326,8 @@ async def on_message(message):
                 await initialize_dm(message.author.id)
             # CREATE TABLE Armaments (Id int auto_increment, ArmamentName VARCHAR(100), ServerId VARCHAR(40), UserId VARCHAR(40), Description TEXT, Slot VARCHAR(20) MinimumLevel Int, DamageMin Int, DamageMax Int, Defense Int, StatMod VARCHAR(30), PRIMARY KEY(Id))
             dm_tracker[message.author.id]["currentcommand"] = 'newarmament'
-            dm_tracker[message.author.id]["fieldlist"] = ["ArmamentName","Description","ArmamentCost","Slot","MinimumLevel","DamageMin","DamageMax","Defense","StatMod","Modifier","PictureLink"]  
-            dm_tracker[message.author.id]["fieldmeans"] = ["The display name of the armament","The free text description of the armament","How much currency the armament will sell for","The equippable slot for the armament (Left Hand, Right Hand, Head, Chest, or Feet [case sensitive])","The minimum level required to use the armament","The minimum damage the armament can do (zero for status only items)","The maximum amount of damage the armament can do (zero for status only items)", "The amount of defense added by the armament (zero for non-defensive armaments)","The status field modified by the armament (Attack, MagicAttack or Agility)","The amount a statistic is modified by the armament (positive or negative)","A picture of the armament"]
+            dm_tracker[message.author.id]["fieldlist"] = ["ArmamentName","Description","ArmamentCost","Slot","MinimumLevel","DamageMin","DamageMax","Defense","StatMod","Modifier","StatusChange","StatusChangedBy","PictureLink"]  
+            dm_tracker[message.author.id]["fieldmeans"] = ["The display name of the armament","The free text description of the armament","How much currency the armament will sell for","The equippable slot for the armament (Left Hand, Right Hand, Head, Chest, or Feet [case sensitive])","The minimum level required to use the armament","The minimum damage the armament can do (zero for status only items)","The maximum amount of damage the armament can do (zero for status only items)", "The amount of defense added by the armament (zero for non-defensive armaments)","The status field modified by the armament (Attack, MagicAttack or Agility)","The amount a statistic is modified by the armament (positive or negative)","The character status effect field (None,Paralyzed,Stunned,Asleep,DisabledSpell,Confused,Poison,ManaDrain,StaminaDrain)","Amount per turn to change status if applicable (zero if not)","A picture of the armament"]
             dm_tracker[message.author.id]["currentfield"] = 0
             dm_tracker[message.author.id]["fielddict"] = [] 
             dm_tracker[message.author.id]["server_id"] = message.guild.id
@@ -5868,7 +6335,7 @@ async def on_message(message):
             
             await reply_message(message, "Please check your DMs for instructions on how to create a new armament, <@" + str(message.author.id) + ">.")
             
-            await direct_message(message, "You have requested a new item! Please type in the response the **name of the armament**, and then enter each field as a reply to the DMs. When you have filled out all fields, the armamement will be created!")
+            await direct_message(message, "You have requested a new item! Please type in the name you want, and then fill out the fields that appear.")
 
         elif command == 'deletespell':
             if not role_check(guild_settings[message.guild.id]["AdminRole"], message.author):
@@ -5923,18 +6390,18 @@ async def on_message(message):
             user_id = message.author.id
             server_id = message.guild.id
 
-            current_fields = await select_sql("""SELECT AttackName,Description,StaminaCost,MinimumLevel,DamageMultiplier,PictureLink FROM Melee WHERE ServerId=%s AND AttackName=%s;""", (str(message.guild.id), parsed_string))
+            current_fields = await select_sql("""SELECT AttackName,Description,StaminaCost,MinimumLevel,DamageMultiplier,StatusChange,StatusChangedBy,PictureLink FROM Melee WHERE ServerId=%s AND AttackName=%s;""", (str(message.guild.id), parsed_string))
             if not current_fields:
                 await reply_message(message, "No melee attack found by that name!")
                 return
           
             if message.author.id not in dm_tracker.keys():
                 await initialize_dm(message.author.id)
-            dm_tracker[message.author.id]["fieldlist"] = ["AttackName","Description","StaminaCost","MinimumLevel","DamageMultiplier","PictureLink"]
+            dm_tracker[message.author.id]["fieldlist"] = ["AttackName","Description","StaminaCost","MinimumLevel","DamageMultiplier","StatuChange","StatusChangedBy","PictureLink"]
             dm_tracker[message.author.id]["currentfield"] = 0
             dm_tracker[message.author.id]["fielddict"]= []
             dm_tracker[message.author.id]["currentcommand"] = 'editmelee'
-            dm_tracker[message.author.id]["fieldmeans"] = ["The name of the melee attack as it appears in combat (punch, kick, body slam)","A description of the attack (free text)","How much stamina will be used to perform the attack","The minimum level required for this attack. A character may know a technique at a lower level but cannot use it in combat","How much to multiply the character's base attack power by for total damage","A picture of the attack"]
+            dm_tracker[message.author.id]["fieldmeans"] = ["The name of the melee attack as it appears in combat (punch, kick, body slam)","A description of the attack (free text)","How much stamina will be used to perform the attack","The minimum level required for this attack. A character may know a technique at a lower level but cannot use it in combat","How much to multiply the character's base attack power by for total damage","The character status effect field (None,Paralyzed,Stunned,Asleep,DisabledSpell,Confused,Poison,ManaDrain,StaminaDrain)","Amount per turn to change status if applicable (zero if not)","A picture of the attack"]
             dm_tracker[message.author.id]["server_id"] = message.guild.id
             dm_tracker[message.author.id]["commandchannel"] = message.channel
             dm_tracker[message.author.id]["parameters"] = parsed_string
@@ -5956,18 +6423,18 @@ async def on_message(message):
             user_id = message.author.id
             server_id = message.guild.id
 
-            current_fields = await select_sql("""SELECT SpellName,Description,ManaCost,MinimumLevel,DamageMultiplier,Element,PictureLink FROM Spells WHERE ServerId=%s AND SpellName=%s;""", (str(message.guild.id), parsed_string))
+            current_fields = await select_sql("""SELECT SpellName,Description,ManaCost,MinimumLevel,DamageMultiplier,Element,StatusChange,StatusChangedBy,PictureLink FROM Spells WHERE ServerId=%s AND SpellName=%s;""", (str(message.guild.id), parsed_string))
             if not current_fields:
                 await reply_message(message, "No spell found by that name!")
                 return
           
             if message.author.id not in dm_tracker.keys():
                 await initialize_dm(message.author.id)
-            dm_tracker[message.author.id]["fieldlist"] = ["SpellName","Description","ManaCost","MinimumLevel","DamageMultiplier","Element","PictureLink"]
+            dm_tracker[message.author.id]["fieldlist"] = ["SpellName","Description","ManaCost","MinimumLevel","DamageMultiplier","Element","StatusChange","StatusChangedBy","PictureLink"]
             dm_tracker[message.author.id]["currentfield"] = 0
             dm_tracker[message.author.id]["fielddict"]= []
             dm_tracker[message.author.id]["currentcommand"] = 'editspell'
-            dm_tracker[message.author.id]["fieldmeans"] = ["The name of the spell as it appears in combat or skill lists","A free text description of the spell, such as what it looks like or its effects","The amount of mana drained to perform the spell","The mininum level required to use the spell. A character may know higher-level spells but cannot use them in combat","The value by which MagicAttack is multiplied for total spell damage","The magic element of this spell (currently unused)","A picture of the spell"]
+            dm_tracker[message.author.id]["fieldmeans"] = ["The name of the spell as it appears in combat or skill lists","A free text description of the spell, such as what it looks like or its effects","The amount of mana drained to perform the spell","The mininum level required to use the spell. A character may know higher-level spells but cannot use them in combat","The value by which MagicAttack is multiplied for total spell damage","The magic element of this spell (currently unused)","The character status effect field (None,Paralyzed,Stunned,Asleep,DisabledSpell,Confused,Poison,ManaDrain,StaminaDrain)","Amount per turn to change status if applicable (zero if not)","A picture of the spell"]
             dm_tracker[message.author.id]["server_id"] = message.guild.id
             dm_tracker[message.author.id]["commandchannel"] = message.channel
             dm_tracker[message.author.id]["parameters"] = parsed_string
@@ -6131,15 +6598,15 @@ async def on_message(message):
             user_id = message.author.id
             server_id = message.guild.id
                 
-            current_fields = await select_sql("""SELECT ArmamentName,Description,ArmamentCost,Slot,MinimumLevel,DamageMin,DamageMax,Defense,StatMod,Modifier,PictureLink FROM Armaments WHERE ServerId=%s AND ArmamentName=%s;""", (str(message.guild.id), parsed_string))
+            current_fields = await select_sql("""SELECT ArmamentName,Description,ArmamentCost,Slot,MinimumLevel,DamageMin,DamageMax,Defense,StatMod,Modifier,StatusChange,StatusChangedBy,PictureLink FROM Armaments WHERE ServerId=%s AND ArmamentName=%s;""", (str(message.guild.id), parsed_string))
             if not current_fields:
                 await reply_message(message, "No armament found by that name!")
                 return
           
             if message.author.id not in dm_tracker.keys():
                 await initialize_dm(message.author.id)
-            dm_tracker[message.author.id]["fieldlist"] = ["ArmamentName","Description","ArmamentCost","Slot","MinimumLevel","DamageMin","DamageMax","Defense","StatMod","Modifier","PictureLink"]
-            dm_tracker[message.author.id]["fieldmeans"] = ["The display name of the armament","The free text description of the armament","How much currency the armament will sell for","The equippable slot for the armament (Left Hand, Right Hand, Head, Chest, or Feet [case sensitive])","The minimum level required to use the armament","The minimum damage the armament can do (zero for status only items)","The maximum amount of damage the armament can do (zero for status only items)", "The amount of defense added by the armament (zero for non-defensive armaments)","The status field modified by the armament (Attack, MagicAttack or Agility)","The amount a statistic is modified by the armament (positive or negative)","A picture of the armament"]
+            dm_tracker[message.author.id]["fieldlist"] = ["ArmamentName","Description","ArmamentCost","Slot","MinimumLevel","DamageMin","DamageMax","Defense","StatMod","Modifier","StatusChange","StatusChangedBy","PictureLink"]
+            dm_tracker[message.author.id]["fieldmeans"] = ["The display name of the armament","The free text description of the armament","How much currency the armament will sell for","The equippable slot for the armament (Left Hand, Right Hand, Head, Chest, or Feet [case sensitive])","The minimum level required to use the armament","The minimum damage the armament can do (zero for status only items)","The maximum amount of damage the armament can do (zero for status only items)", "The amount of defense added by the armament (zero for non-defensive armaments)","The status field modified by the armament (Attack, MagicAttack or Agility)","The amount a statistic is modified by the armament (positive or negative)","The character status effect field (None,Paralyzed,Stunned,Asleep,DisabledSpell,Confused,Poison,ManaDrain,StaminaDrain)","Amount per turn to change status if applicable (zero if not)","A picture of the armament"]
             dm_tracker[message.author.id]["currentfield"] = 0
             dm_tracker[message.author.id]["fielddict"]= []
             dm_tracker[message.author.id]["currentcommand"] = 'editarmament'
@@ -6164,18 +6631,18 @@ async def on_message(message):
             user_id = message.author.id
             server_id = message.guild.id
                 
-            current_fields = await select_sql("""SELECT EquipmentName,EquipmentDescription,EquipmentCost,MinimumLevel,StatMod,Modifier,PictureLink FROM Equipment WHERE ServerId=%s AND EquipmentName=%s;""", (str(message.guild.id), parsed_string))
+            current_fields = await select_sql("""SELECT EquipmentName,EquipmentDescription,EquipmentCost,MinimumLevel,StatMod,Modifier,StatusChange,StatusChangedBy,PictureLink FROM Equipment WHERE ServerId=%s AND EquipmentName=%s;""", (str(message.guild.id), parsed_string))
             if not current_fields:
                 await reply_message(message, "No item found by that name!")
                 return
           
             if message.author.id not in dm_tracker.keys():
                 await initialize_dm(message.author.id)
-            dm_tracker[message.author.id]["fieldlist"] = ["EquipmentName","EquipmentDescription","EquipmentCost","MinimumLevel","StatMod","Modifier","PictureLink"]
             dm_tracker[message.author.id]["currentfield"] = 0
             dm_tracker[message.author.id]["fielddict"]= []
             dm_tracker[message.author.id]["currentcommand"] = 'edititem'
-            dm_tracker[message.author.id]["fieldmeans"] = ["The name of the item as it will appear in the inventory and vendor lists","A description of the item","How much currency a player must have to purchase the item", "The minimum level a character must be to use an item. A player may purchase a higher-level item but will not be able to use it until their level is the minimum or higher", "Which character statistic this item modifies (Health, Stamina, Mana, Attack, Defense, MagicAttack, Agility)","The value this item modifies the statistic by. A positive value increases the stat, a negative one decreases it. So a healing potion could be 100, and a cursed item -500","A picture of the item"]     
+            dm_tracker[message.author.id]["fieldlist"] = ["EquipmentName","EquipmentDescription","EquipmentCost","MinimumLevel","StatMod","Modifier","StatusChange","StatusChangedBy","PictureLink"]
+            dm_tracker[message.author.id]["fieldmeans"] = ["The name of the item as it will appear in the inventory and vendor lists","A description of the item","How much currency a player must have to purchase the item", "The minimum level a character must be to use an item. A player may purchase a higher-level item but will not be able to use it until their level is the minimum or higher", "Which character statistic this item modifies (Health, Stamina, Mana, Attack, Defense, MagicAttack, Agility)","The value this item modifies the statistic by. A positive value increases the stat, a negative one decreases it. So a healing potion could be 100, and a cursed item -500","The character status effect field (None,Paralyzed,Stunned,Asleep,DisabledSpell,Confused,Poison,ManaDrain,StaminaDrain)","Amount per turn to change status if applicable (zero if not)","A picture of the item"]       
             dm_tracker[message.author.id]["server_id"] = message.guild.id
             dm_tracker[message.author.id]["commandchannel"] = message.channel
             dm_tracker[message.author.id]["parameters"] = parsed_string
@@ -6326,7 +6793,7 @@ async def on_message(message):
                 user_id = int(row[1])
             records = await select_sql("""SELECT EquipmentId FROM Inventory WHERE CharacterId=%s;""",(char_id,))
             if not records:
-                await reply_message(message, char_name + " doesn't have any items!")
+                await reply_message(message, parsed_string + " doesn't have any items!")
                 return
             response = "**INVENTORY**\n\n"
             for row in records:
@@ -6384,7 +6851,7 @@ async def on_message(message):
                 response = response + row[0] + "\n"
             embed = discord.Embed(title="Server Item Listing")
             embed.add_field(name="Item Names",value = response)
-            await message.channel.send(embed=embed)
+            # await message.channel.send(embed=embed)
             
             await reply_message(message, response)
         elif command == 'listarmaments':
@@ -6477,8 +6944,8 @@ async def on_message(message):
                 await initialize_dm(message.author.id)
             dm_tracker[message.author.id]["currentcommand"] = 'newbuff'
             # BuffName VARCHAR(100), ManaCost Int, MinimumLevel Int, StatMod VARCHAR(30), Modifier Int, Description TEXT,
-            dm_tracker[message.author.id]["fieldlist"] = ["BuffName","ManaCost","MinimumLevel","StatMod","Modifier","Description","PictureLink"]
-            dm_tracker[message.author.id]["fieldmeans"] = ["The name of the buff spell","The amount of mana drained to perform the buff","The minimum level required to use the buff","The status modified by the buff","The amount, positive or negative, of the buff's modification to the status","A free text description of the buff","A picture of the buff"]
+            dm_tracker[message.author.id]["fieldlist"] = ["BuffName","ManaCost","MinimumLevel","StatMod","Modifier","Description","StatusChange","StatusChangedBy","PictureLink"]
+            dm_tracker[message.author.id]["fieldmeans"] = ["The name of the buff spell","The amount of mana drained to perform the buff","The minimum level required to use the buff","The status modified by the buff","The amount, positive or negative, of the buff's modification to the status","A free text description of the buff","The character status effect field (None,Paralyzed,Stunned,Asleep,DisabledSpell,Confused,Poison,ManaDrain,StaminaDrain)","Amount per turn to change status if applicable (zero if not)","A picture of the buff"]
             dm_tracker[message.author.id]["currentfield"] = 0
             dm_tracker[message.author.id]["fielddict"] = [] 
             dm_tracker[message.author.id]["server_id"] = message.guild.id
@@ -6486,7 +6953,7 @@ async def on_message(message):
             
             await reply_message(message, "Please check your DMs for instructions on how to create a new buff, <@" + str(message.author.id) + ">.")
             
-            await direct_message(message, "You have requested a new buff! Please type in the response the **name of the buff**, and then enter each field as a reply to the DMs. When you have filled out all fields, the buff will be created!")
+            await direct_message(message, "You have requested a new buff! Please type in the name you want, and then fill out the fields that appear.")
         elif command == 'editbuff':
             if not role_check(guild_settings[message.guild.id]["AdminRole"], message.author):
                 await reply_message(message, "You must be a member of the admin role to edit buffs!")
@@ -6494,7 +6961,7 @@ async def on_message(message):
             if not parsed_string:
                 await reply_message(message, "No buff name specified!")
                 return                       
-            current_fields = await select_sql("""SELECT BuffName,ManaCost,MinimumLevel,StatMod,Modifier,Description,PictureLink FROM Buffs WHERE ServerId=%s AND BuffName=%s;""", (str(message.guild.id), parsed_string))
+            current_fields = await select_sql("""SELECT BuffName,ManaCost,MinimumLevel,StatMod,Modifier,Description,StatusChange,StatusChangedBy,PictureLink FROM Buffs WHERE ServerId=%s AND BuffName=%s;""", (str(message.guild.id), parsed_string))
             if not current_fields:
                 await reply_message(message, "No buff found by that name!")
                 return                
@@ -6503,8 +6970,8 @@ async def on_message(message):
                 
             dm_tracker[message.author.id]["currentcommand"] = 'editbuff'
             # BuffName VARCHAR(100), ManaCost Int, MinimumLevel Int, StatMod VARCHAR(30), Modifier Int, Description TEXT,
-            dm_tracker[message.author.id]["fieldlist"] = ["BuffName","ManaCost","MinimumLevel","StatMod","Modifier","Description","PictureLink"]
-            dm_tracker[message.author.id]["fieldmeans"] = ["The name of the buff spell","The magic element of this spell (currently unused)","The amount of mana drained to perform the buff","The minimum level required to use the buff","The status modified by the buff","The amount, positive or negative, of the buff's modification to the status","A free text description of the buff","A picture of the buff"]                                                  
+            dm_tracker[message.author.id]["fieldlist"] = ["BuffName","ManaCost","MinimumLevel","StatMod","Modifier","Description","StatusChange","StatusChangedBy","PictureLink"]
+            dm_tracker[message.author.id]["fieldmeans"] = ["The name of the buff spell","The magic element of this spell (currently unused)","The amount of mana drained to perform the buff","The minimum level required to use the buff","The status modified by the buff","The amount, positive or negative, of the buff's modification to the status","A free text description of the buff","The character status effect field (None,Paralyzed,Stunned,Asleep,DisabledSpell,Confused,Poison,ManaDrain,StaminaDrain)","Amount per turn to change status if applicable (zero if not)","A picture of the buff"]                                                  
             dm_tracker[message.author.id]["currentfield"] = 0
             dm_tracker[message.author.id]["fielddict"] = [] 
             dm_tracker[message.author.id]["server_id"] = message.guild.id
@@ -6600,7 +7067,7 @@ async def on_message(message):
             if not parsed_string:
                 await reply_message(message, "You did not specify a buff!")
                 return
-            records = await select_sql("""SELECT BuffName,ManaCost,MinimumLevel,StatMod,Modifier,Description,PictureLink FROM Buffs WHERE ServerId=%s AND BuffName=%s;""",(str(message.guild.id),str(parsed_string)))
+            records = await select_sql("""SELECT BuffName,ManaCost,MinimumLevel,StatMod,Modifier,Description,StatusChange,StatusChangedBy,PictureLink FROM Buffs WHERE ServerId=%s AND BuffName=%s;""",(str(message.guild.id),str(parsed_string)))
             if not records:
                 await reply_message(message, "No buff found with that name!")
                 return
@@ -6611,7 +7078,9 @@ async def on_message(message):
                 stat_mod = row[3]
                 modifier = str(row[4])
                 description = row[5]
-                picture_link = row[6]
+                status_changed = row[6]
+                status_changed_by = row[7]
+                picture_link = row[8]
             embed = discord.Embed(title="Buff Data for " + buff_name)
             if picture_link.startswith('http'):
                 embed.set_thumbnail(url=picture_link)
@@ -6620,6 +7089,8 @@ async def on_message(message):
             embed.add_field(name="Status Modified:",value=stat_mod)
             embed.add_field(name="Modified Value:",value=modifier)
             embed.add_field(name="Description:",value=description)
+            embed.add_field(name="Status Change:",value=status_changed)
+            embed.add_field(name="Status Changed By:",value=str(status_changed_by))              
             
             await message.channel.send(embed=embed)
             
@@ -6655,7 +7126,7 @@ async def on_message(message):
             await reply_message(message, "<@" + str(message.author.id) + "> , check your DMs for how to use the item.")
 
  
-        elif command == 'getcharequipped':
+        elif command == 'equipped':
             char_name = parsed_string
             if not parsed_string:
                 await reply_message(message, "No character name specified!")
@@ -6673,7 +7144,7 @@ async def on_message(message):
                 chest_id = row[3]
                 feet_id = row[4]
             if not records:
-                await direct_message(message, "This character has nothing equipped!")
+                await reply_message(message, "This character has nothing equipped!")
                 return
             records = await select_sql("""SELECT ArmamentName FROM Armaments WHERE Id=%s;""", (head_id,))
             for row in records:
@@ -6742,12 +7213,11 @@ async def on_message(message):
             responses = ["flops on","rolls around","curls on","lurks by","farts near","falls asleep on","throws Skittles at","throws popcorn at","huggles","snugs","hugs","snuggles","tucks in","watches","stabs","slaps","sexes up","tickles","thwaps","pinches","smells","cries with","laughs at","fondles","stalks","leers at","creeps by","lays on","glomps","clings to","flirts with","makes fun of","nibbles on","noms","protects","stupefies","snickers at"]
             usernames = message.guild.members
             user = random.choice(usernames)
-            if parsed_string:
-                user_id = message.mentions[0].id
-            else:
-                user_id = user.id
-            response = "((*" + name + " " + random.choice(responses) + " <@" + str(user_id) + ">*))"
+            if message.mentions:
+                user = message.mentions[0]
+            response = "((*" + name + " " + random.choice(responses) +" " + str(user.display_name) + "*))"
             await reply_message(message, response)
+            await message.delete()
         elif command == 'givecurrency':
             if not role_check(guild_settings[message.guild.id]["GameModeratorRole"], message.author):
                 await reply_message(message, "You must be a member of the GM role to give currency!")
@@ -6856,11 +7326,11 @@ async def on_message(message):
             
             await reply_message(message, "Please check your DMs for instructions on how to create a new monster, <@" + str(message.author.id) + ">.")
             
-            await direct_message(message, "You have requested a new monster! Please type in the response the **name of the monster**, and then enter each field as a reply to the DMs. When you have filled out all fields, the monster will be created!")                
+            await direct_message(message, "You have requested a new monster! Please type in the name you want, and then fill out the fields that appear.")                
 
         elif command == 'editcharinfo':
             if not role_check(guild_settings[message.guild.id]["PlayerRole"], message.author):
-                await reply_message(message, "You must be a member of the player role to edit edit character info!")
+                await reply_message(message, "You must be a member of the player role to edit character info!")
                 return        
             if not parsed_string:
                 await reply_message(message, "No character name specified!")
@@ -6887,7 +7357,7 @@ async def on_message(message):
             for row in dm_tracker[message.author.id]["fieldlist"]:
                 dm_tracker[message.author.id]["fielddict"].append(fields[counter])
                 counter = counter + 1
-                if counter > len(dm_tracker[message.author.id]["fieldlist"]) - 2:
+                if counter > len(dm_tracker[message.author.id]["fieldlist"]) - 1:
                     break
             
             await reply_message(message, "Please check your DMs for instructions on how to edit a character, <@" + str(message.author.id) + ">.")
@@ -6954,13 +7424,14 @@ async def on_message(message):
             embed = discord.Embed(title="Monster data for " + parsed_string)
             
             for row in records:
-                embed.set_thumbnail(url=row[7])
+                if re.search(r"http",row[7]):
+                    embed.set_thumbnail(url=row[7])
                 embed.add_field(name="Description:",value=row[0])
                 embed.add_field(name="Health:",value=str(row[1]))
                 embed.add_field(name="Level:",value=str(row[2]))
                 embed.add_field(name="Melee Attack Power:",value=str(row[3]))
                 embed.add_field(name="Defense:",value=str(row[4]))
-                embed.add_field(name="Magic Attack Power:",value=str(row[5]))
+                embed.add_field(name="Magic Attack Power:",value=str(row[6]))
                 embed.add_field(name="Element:",value=row[5])
                 
                 response = response + "Name: " + parsed_string + "\nDescription: " + str(row[0]) + "\nHealth: " + str(row[1]) + "\nLevel: " + str(row[2]) + "\nMelee Attack: " + str(row[3]) + "\nDefense: " + str(row[4]) + "\nMagic Attack: " + str(row[6]) + "\nElement: " + str(row[5]) + "\nPicture Link: " + str(row[7]) + "\nMax Currency Drop: " + str(row[8]) + "\n"
@@ -6971,7 +7442,7 @@ async def on_message(message):
             if not parsed_string:
                 await reply_message(message, "No item name specified!")
                 return
-            records = await select_sql("""SELECT EquipmentDescription, EquipmentCost, MinimumLevel, StatMod, Modifier, PictureLink FROM Equipment WHERE ServerId=%s AND EquipmentName=%s;""", (str(message.guild.id),parsed_string))
+            records = await select_sql("""SELECT EquipmentDescription, EquipmentCost, MinimumLevel, StatMod, Modifier, StatusChange, StatusChangedBy, PictureLink FROM Equipment WHERE ServerId=%s AND EquipmentName=%s;""", (str(message.guild.id),parsed_string))
             if not records:
                 await reply_message(message, "No item found with that name!")
                 return
@@ -6979,12 +7450,15 @@ async def on_message(message):
             embed = discord.Embed(title="Item data for " + parsed_string)
             
             for row in records:
-                embed.set_thumbnail(url=row[5])
+                if row[7].startswith('http'):
+                    embed.set_thumbnail(url=row[7])
                 embed.add_field(name="Description",value=row[0])
                 embed.add_field(name="Price", value=str(row[1]))
                 embed.add_field(name="Minimum Level:",value=str(row[2]))
                 embed.add_field(name="Status Modified:",value=row[3])
                 embed.add_field(name="Modified by value:",value=str(row[4]))
+                embed.add_field(name="Status Change:",value=row[5])
+                embed.add_field(name="Status Changed By:",value=str(row[6]))                
                 
                 response = response + "Name: " + parsed_string + "\nDescription: " + row[0] + "\nPrice: " + str(row[1]) + "\nMinimum Level: " + str(row[2]) + "\nStat Modified: " + str(row[3]) + "\nModifier Change: " + str(row[4]) + "\nPicture Link: " + row[5] + "\n"
  #           await reply_message(message, response)
@@ -7019,15 +7493,16 @@ async def on_message(message):
             if not parsed_string:
                 await reply_message(message, "No armament name specified!")
                 return
-            records = await select_sql("""SELECT Description, ArmamentCost, MinimumLevel, StatMod, Modifier, Slot, DamageMin, DamageMax, Defense, PictureLink FROM Armaments WHERE ServerId=%s AND ArmamentName=%s;""", (str(message.guild.id),parsed_string))
+            records = await select_sql("""SELECT Description, ArmamentCost, MinimumLevel, StatMod, Modifier, Slot, DamageMin, DamageMax, Defense, StatusChange, StatusChangedBy, PictureLink FROM Armaments WHERE ServerId=%s AND ArmamentName=%s;""", (str(message.guild.id),parsed_string))
             if not records:
                 await reply_message(message, "No armament found with that name!")
                 return
             response = "**ARMAMENT DATA**\n\n"
             embed = discord.Embed(title="Armament data for " + parsed_string)
             
-            for row in records: 
-                embed.set_thumbnail(url=row[9])
+            for row in records:
+                if row[11].startswith('http'):
+                    embed.set_thumbnail(url=row[11])
                 embed.add_field(name="Description:",value=row[0])
                 embed.add_field(name="Price:",value=str(row[1]))
                 embed.add_field(name="Minimum Level:",value=str(row[2]))
@@ -7037,6 +7512,8 @@ async def on_message(message):
                 embed.add_field(name="Minimum Damage:",value=str(row[6]))
                 embed.add_field(name="Maximum Damage:", value=str(row[7]))
                 embed.add_field(name="Defense:",value=str(row[8]))
+                embed.add_field(name="Status Change:",value=row[9])
+                embed.add_field(name="Status Changed By:",value=str(row[10]))
                 
                 response = response + "Name: " + parsed_string + "\nDescription: " + row[0] + "\nPrice: " + str(row[1]) + "\nMinimum Level: " + str(row[2]) + "\nStat Modified: " + str(row[3]) + "\nModifier Change: " + str(row[4]) + "\nSlot: " + row[5] + "\nMinimum Damage: " + str(row[6]) + "\nMaximum Damage: " + str(row[7]) + "\nDefense: " + str(row[8]) + "\nPicture Link: " + row[9] + "\n"
             await message.channel.send(embed=embed)
@@ -7189,7 +7666,7 @@ async def on_message(message):
             await direct_message(message, response)
             await reply_message(message, "<@" + str(message.author.id) + "> , please see your DMs for instructions on how to cast a spell.")
 
-        elif command == 'getchararms':
+        elif command == 'armaments':
             char_name = parsed_string
             if not char_name:
                 await reply_message(message, "No character specified!")
@@ -7298,6 +7775,46 @@ async def on_message(message):
             await direct_message(message, response)
             await reply_message(message, "<@" + str(message.author.id) + "> , please see your DMs for instructions on how to attack.")
 
+        elif command == 'disarm':
+            server_id = message.guild.id
+            user_id = message.author.id
+            if not role_check(guild_settings[message.guild.id]["PlayerRole"], message.author):
+                await reply_message(message, "You must be a member of the player role to use disarming attacks!")
+                return            
+            if not mass_spar_event[server_id]:
+                await reply_message(message, "Why are you casting Magic Missile? There's nothing to attack here!")
+                return
+
+            in_party = next((item for item in mass_spar[server_id] if item.id == user_id), None)
+            if not in_party:
+                await reply_message(message, "You are not in the spar group!")
+                return
+            if message.author != list(mass_spar[server_id])[mass_spar_turn[server_id]]:
+                await reply_message(message, "It's not your turn!")
+                return
+            
+            if message.author.id not in dm_tracker.keys():
+                await initialize_dm(message.author.id)
+            dm_tracker[message.author.id]["fieldlist"] = ["CharId","Disarmed"]
+            dm_tracker[message.author.id]["currentfield"] = 0
+            dm_tracker[message.author.id]["fielddict"]= []
+            dm_tracker[message.author.id]["currentcommand"] = 'disarm'
+            dm_tracker[message.author.id]["server_id"] = message.guild.id
+            dm_tracker[message.author.id]["commandchannel"] = message.channel
+            dm_tracker[message.author.id]["parameters"] = parsed_string
+            char_map = {} 
+            response = "Select a target:\n\n"
+            for character in mass_spar_chars[server_id]:
+                char_name = mass_spar_chars[server_id][character]["CharName"]
+                char_id = mass_spar_chars[server_id][character]["CharId"]
+                char_map[char_id] = character
+                response = response + "**" + str(char_id) + "** - " + char_name + "\n"
+            dm_tracker[message.author.id]["parameters"] = char_map
+            await direct_message(message, response)
+           
+
+            await reply_message(message, "<@" + str(message.author.id) + "> , please see your DMs for instructions on how to disarm.")
+            
         elif command == 'setsparchar':
             if not role_check(guild_settings[message.guild.id]["PlayerRole"], message.author):
                 await reply_message(message, "You must be a member of the player role to set a sparring character!")
@@ -7384,7 +7901,7 @@ async def on_message(message):
             embed.set_thumbnail(url=server_monsters[server_id]["PictureLink"])
             await message.channel.send(embed=embed)
             
-            time.sleep(1)
+            asyncio.sleep(1)
   #          await reply_message(message, " " + str(server_monsters[server_id]["MonsterName"]) + " attacks " + str(server_party_chars[server_id][target]["CharName"]) + "!")
             dodge = await calculate_dodge(server_monsters[server_id]["Level"], server_party_chars[server_id][target]["Agility"])
             if dodge:
@@ -7530,9 +8047,7 @@ async def on_message(message):
             if not role_check(guild_settings[message.guild.id]["PlayerRole"], message.author):
                 await reply_message(message, "You must be a member of the player role to add stat points!")
                 return
-            if not available_points[message.guild.id][message.author.id]:
-                await reply_message(message, "You have no available points!")
-                return
+
             if message.author.id not in dm_tracker.keys():
                 await initialize_dm(message.author.id)
             
@@ -7613,21 +8128,25 @@ async def on_message(message):
             if not role_check(guild_settings[message.guild.id]["AdminRole"], message.author):
                 await reply_message(message, "You must be a member of the admin role to set other roles!")
                 return        
-            records = await select_sql("""SELECT SpellName, Element, ManaCost, MinimumLevel, DamageMultiplier, Description, PictureLink FROM Spells WHERE ServerId=%s;""",('701795316738818188',))
+            await reply_message(message, "Loading default data..")
+            records = await select_sql("""SELECT SpellName, Element, ManaCost, MinimumLevel, DamageMultiplier, Description, PictureLink FROM Spells WHERE ServerId=%s;""",('698744524482019328',))
             for row in records:
                 result = await commit_sql("""INSERT INTO Spells (ServerId, UserId, SpellName, Element, ManaCost, MinimumLevel, DamageMultiplier, Description, PictureLink) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s);""",(str(message.guild.id),str(message.author.id),row[0], row[1],str(row[2]),str(row[3]), str(row[4]), row[5], row[6]))
-            records = await select_sql("""SELECT AttackName, StaminaCost, MinimumLevel, DamageMultiplier, Description, PictureLink FROM Melee WHERE ServerId=%s;""",('701795316738818188',))
+            records = await select_sql("""SELECT AttackName, StaminaCost, MinimumLevel, DamageMultiplier, Description, PictureLink FROM Melee WHERE ServerId=%s;""",('698744524482019328',))
             for row in records:
                 result = await commit_sql("""INSERT INTO Melee (ServerId, UserId, AttackName, StaminaCost, MinimumLevel, DamageMultiplier, Description, PictureLink) VALUES (%s,%s,%s,%s,%s,%s,%s,%s);""",(str(message.guild.id),str(message.author.id),row[0], row[1],str(row[2]),str(row[3]), str(row[4]), row[5]))
-            records = await select_sql("""SELECT EquipmentName, EquipmentDescription, EquipmentCost, MinimumLevel, StatMod, Modifier, PictureLink FROM Equipment WHERE ServerId=%s;""",('701795316738818188',))
+            records = await select_sql("""SELECT EquipmentName, EquipmentDescription, EquipmentCost, MinimumLevel, StatMod, Modifier, PictureLink FROM Equipment WHERE ServerId=%s;""",('698744524482019328',))
             for row in records:
                 result = await commit_sql("""INSERT INTO Equipment (ServerId, UserId, EquipmentName, EquipmentDescription, EquipmentCost, MinimumLevel, StatMod, Modifier, PictureLink) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s);""",(str(message.guild.id),str(message.author.id),row[0], row[1],str(row[2]),str(row[3]), str(row[4]), row[5], row[6])) 
-            records = await select_sql("""SELECT ArmamentName, Description, ArmamentCost, Slot, MinimumLevel, DamageMin, DamageMax, Defense, StatMod, Modifier, PictureLink FROM Armaments WHERE ServerId=%s;""",('701795316738818188',))
+            records = await select_sql("""SELECT ArmamentName, Description, ArmamentCost, Slot, MinimumLevel, DamageMin, DamageMax, Defense, StatMod, Modifier, PictureLink FROM Armaments WHERE ServerId=%s;""",('698744524482019328',))
             for row in records:
                 result = await commit_sql("""INSERT INTO Armaments (ServerId, UserId, ArmamentName, Description, ArmamentCost, Slot, MinimumLevel, DamageMin, DamageMax, Defense, StatMod, Modifier, PictureLink) VALUES (%s,%s,%s,%s,%s,%s,%s,%s, %s,%s,%s,%s,%s);""",(str(message.guild.id),str(message.author.id),row[0], row[1],str(row[2]),str(row[3]), str(row[4]), row[5], row[6], row[7], row[8],row[9],row[10]))
-            records = await select_sql("""SELECT MonsterName, Description, Health, Level, Attack, Defense, Element, MagicAttack, MaxCurrencyDrop, PictureLink FROM Monsters WHERE  ServerId=%s;""", ('701795316738818188',))
+            records = await select_sql("""SELECT MonsterName, Description, Health, Level, Attack, Defense, Element, MagicAttack, MaxCurrencyDrop, PictureLink FROM Monsters WHERE  ServerId=%s;""", ('698744524482019328',))
             for row in records:
                 result = await commit_sql("""INSERT INTO Monsters (ServerId, UserId, MonsterName, Description, Health, Level, Attack, Defense, Element, MagicAttack, MaxCurrencyDrop, PictureLink) VALUES (%s,%s,%s,%s,%s,%s,%s,%s, %s,%s,%s,%s);""",(str(message.guild.id),str(message.author.id),row[0], row[1],str(row[2]),str(row[3]), str(row[4]), row[5], row[6], row[7], row[8], row[9]))
+            records = await select_sql("""SELECT BuffName, ManaCost, MinimumLevel, StatMod, Modifier, Description, IFNULL(PictureLink,'None') FROM Buffs WHERE ServerId=%s;""",('698744524482019328',))
+            for row in records:
+                result = await commit_sql("""INSERT INTO Buffs (ServerId, UserId, BuffName, ManaCost, MinimumLevel, StatMod, Modifier, Description, PictureLink) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s);""",(str(message.guild.id),str(message.author.id), str(row[0]), str(row[1]), str(row[2]), str(row[3]), str(row[4]), str(row[5]),str(row[6])))
             await reply_message(message, "Done!")
         elif command == 'setbank':
             if not role_check(guild_settings[message.guild.id]["AdminRole"], message.author):
@@ -7645,7 +8164,7 @@ async def on_message(message):
                 
         elif command == 'listsetup':
             server_id = message.guild.id
-            records = await select_sql("""SELECT ServerId,IFNULL(AdminRole,'0'),IFNULL(GameModeratorRole,'0'),IFNULL(NPCRole,'0'),IFNULL(PlayerRole,'0'),IFNULL(GuildBankBalance,'0'),IFNULL(StartingHealth,'0'),IFNULL(StartingMana,'0'),IFNULL(StartingStamina,'0'),IFNULL(StartingAttack,'0'),IFNULL(StartingDefense,'0'),IFNULL(StartingMagicAttack,'0'),IFNULL(StartingAgility,'0'),IFNULL(StartingIntellect,'0'),IFNULL(StartingCharisma,'0'),IFNULL(HealthLevelRatio,'0'),IFNULL(ManaLevelRatio,'0'),IFNULL(StaminaLevelRatio,'0'),IFNULL(XPLevelRatio,'0'),IFNULL(HealthAutoHeal,'0'),IFNULL(ManaAutoHeal,'0'),IFNULL(StaminaAutoHeal,'0') FROM GuildSettings WHERE ServerId=%s;""",(str(message.guild.id),))
+            records = await select_sql("""SELECT ServerId,IFNULL(AdminRole,'0'),IFNULL(GameModeratorRole,'0'),IFNULL(NPCRole,'0'),IFNULL(PlayerRole,'0'),IFNULL(GuildBankBalance,'0'),IFNULL(StartingHealth,'0'),IFNULL(StartingMana,'0'),IFNULL(StartingStamina,'0'),IFNULL(StartingAttack,'0'),IFNULL(StartingDefense,'0'),IFNULL(StartingMagicAttack,'0'),IFNULL(StartingAgility,'0'),IFNULL(StartingIntellect,'0'),IFNULL(StartingCharisma,'0'),IFNULL(HealthLevelRatio,'0'),IFNULL(ManaLevelRatio,'0'),IFNULL(StaminaLevelRatio,'0'),IFNULL(XPLevelRatio,'0'),IFNULL(HealthAutoHeal,'0'),IFNULL(ManaAutoHeal,'0'),IFNULL(StaminaAutoHeal,'0'),IFNULL(AutoCharApproval,'0') FROM GuildSettings WHERE ServerId=%s;""",(str(message.guild.id),))
             if not records:
                 await reply_message(message, "Not all settings found. Please run =newsetup to initialize all settings.")
                 return
@@ -7671,6 +8190,7 @@ async def on_message(message):
                 guild_settings[server_id]["HealthAutoHeal"] = float(row[19])
                 guild_settings[server_id]["ManaAutoHeal"] = float(row[20])
                 guild_settings[server_id]["StaminaAutoHeal"] = float(row[21])
+                guild_settings[server_id]["AutoCharApproval"] = int(row[22])
             response = "**CURRENT SERVER SETTINGS**\n\n"
             embed = discord.Embed(title="Server Setup Parameters")
             for setting in list(guild_settings[server_id].keys()):
@@ -7679,7 +8199,10 @@ async def on_message(message):
                 else:
                     setting_value = str(guild_settings[message.guild.id][setting])
                 response = response + "**" + setting + ":** " + setting_value +  "\n"
-                embed.add_field(name=setting,value=setting_value)
+                if re.search(r"Role",setting):
+                    embed.add_field(name=setting,value=discord.utils.get(message.guild.roles,id=int(setting_value)).name)
+                else:
+                    embed.add_field(name=setting,value=setting_value)
             await message.channel.send(embed=embed)    
             # await reply_message(message, response)
             
@@ -7693,7 +8216,7 @@ async def on_message(message):
             dm_tracker[message.author.id]["fieldlist"] = ["ServerId","GuildBankBalance","StartingHealth","StartingMana","StartingStamina","StartingAttack","StartingDefense","StartingMagicAttack","StartingAgility","StartingIntellect","StartingCharisma","HealthLevelRatio","ManaLevelRatio","StaminaLevelRatio","XPLevelRatio","HealthAutoHeal","ManaAutoHeal","StaminaAutoHeal"]
             dm_tracker[message.author.id]["fieldmeans"] = ["Server ID","The total currency in the guild bank. Used for determining how much can be sold back to the guild or how much currency can be given by GMs", " The amount of health new characters start with", "The amount of mana new characters start with", "The amount of stamina new characters start with", "The amount of attack power new characters start with for melee", "The amount of defense against total damage a character starts with", "The amount of spell power a new character starts with", "The amount of agility a new character starts with", "The amount of intellect a new character starts with (unused)", "The amount of charisma a new character starts with (unused)", "How many times the level a character's health is set to", "How many times the level a character's mana is set to", "How many times the level a character's stamina is set to", "How many times a level XP must total to before a new level is granted", "How much health is restored per turn during spars and encounters for characters as a multiplier of health. Set to zero for no restores, or less than 1 for partial autoheal (such as 0.1 for 10% per turn)", "How much mana restores per turn.", "How much stamina restores per turn"]
             dm_tracker[message.author.id]["currentfield"] = 1
-            dm_tracker[message.author.id]["fielddict"]= [str(message.guild.id),"1000000","200","100","100","10","5","10","10","10","10","200","100","100","20","0.2","0.1","0.1"]
+            dm_tracker[message.author.id]["fielddict"]= [str(message.guild.id),"1000000","200","100","100","10","5","10","10","10","10","200","100","100","200","0.05","0.1","0.1"]
             dm_tracker[message.author.id]["currentcommand"] = 'editsetup'
             dm_tracker[message.author.id]["server_id"] = message.guild.id
             dm_tracker[message.author.id]["commandchannel"] = message.channel
@@ -7886,7 +8409,15 @@ async def on_message(message):
                     await reply_message(message, "Cannot remove roles due to permissions!")
                     return
             await reply_message(message, "Users removed from admin role!") 
-            
+        
+        elif command == 'setxpchannel':
+            server_id = message.guild.id
+            if not message.channel_mentions:
+                await reply_message(message, "You didn't mention an XP channel!")
+                return
+            guild_settings[server_id]["XPChannel"] = message.channel_mentions[0]
+            result = await commit_sql("""UPDATE GuildSettings SET XPChannelId=%s WHERE ServerId=%s;""",(str(guild_settings[server_id]["XPChannel"].id),str(message.guild.id)))
+            await reply_message(message, "Channel for XP messages set to " + guild_settings[server_id]["XPChannel"].name + "!")
             
         elif command == 'resetserver':
             if not message.author.guild_permissions.manage_guild:
@@ -7904,74 +8435,51 @@ async def on_message(message):
             dm_tracker[message.author.id]["parameters"] = parsed_string
             await reply_message(message, "**WARNING! THIS WILL WIPE ALL SERVER SETTINGS, INCLUDING CHARACTERS, ITEMS, VENDORS, SPELLS, MONSTERS, MELEE ATTACKS, AND SERVER SETTINGS FROM THE BOT! PLEASE REPLY TO THE DM WITH** ```CONFIRM``` **TO PROCEED.**")
             await direct_message(message, "**WARNING! THIS WILL WIPE ALL SERVER SETTINGS, INCLUDING CHARACTERS, ITEMS, VENDORS, SPELLS, MONSTERS, MELEE ATTACKS, AND SERVER SETTINGS FROM THE BOT! PLEASE REPLY TO THE DM WITH** ```CONFIRM``` **TO PROCEED.**\n\nAre you sure you want to do this?")
-            
-            
-        elif command == 'newcustomprofile':
-            if not role_check(guild_settings[message.guild.id]["AdminRole"], message.author):
-                await reply_message(message, "You must be a member of the admin role to set the bank assets!")
-                return
-            if not parsed_string:
-                await reply_message(message, "No fields were specified for the custom profile!")
-                return
-            fields = parsed_string.split(',')
-            field_name = " "
-            for line in fields:
-                field_name = field_name + line.split('=')[0] + ","
-            custom_profile_entry = """INSERT INTO CustomProfiles (ServerId, Fields) VALUES (%s,%s);"""
-            result = await commit_sql(custom_profile_entry, (str(message.guild.id), field_name))
-            if not result:
-                await reply_message(mesage, "Could not create custom profile!")
-                return
-            create_custom_profile = "CREATE TABLE " + re.sub(r"[^A-Za-z0-9]","",message.guild.name) + str(message.guild.id) + " (Id int auto_increment, ServerId varchar(40), UserId varchar(40), Name TEXT, "
-            custom_profile_tuple = (str(message.guild.id), str(message.author.id), "Name")
-            display_name_entry = "INSERT INTO " + re.sub(r"[^A-Za-z0-9]","",message.guild.name) + str(message.guild.id) + " (ServerId, UserId, Name, " 
-            display_name_values = " VALUES (%s, %s, %s, "
-            for field in fields:
-                split_fields = field.split('=')
-                display_name = split_fields[1]
-                create_custom_profile = create_custom_profile + split_fields[0] + " TEXT, "
-                custom_profile_tuple = custom_profile_tuple + (display_name,)
-                display_name_values = display_name_values + "%s, "
-                display_name_entry = display_name_entry + split_fields[0] + ", "
-            create_custom_profile = create_custom_profile + " PRIMARY KEY(Id));"
-            await log_message("SQL: " + create_custom_profile)
-            result = await execute_sql(create_custom_profile)
-            if result:
-                await reply_message(message, "Custom profile for server successfully created!")
-            else:
-                await reply_message(message, "Database error! Please ensure your field names have no spaces and are separated by commas!")
-            
-            display_name_entry = re.sub(r", $","", display_name_entry) + ")" + re.sub(r", $","", display_name_values) + ");"
-            
-            result = await commit_sql(display_name_entry, custom_profile_tuple)
-            if result:
-                await reply_message(message, "Display names for fields set successfully.")
-            else:
-                await reply_message(message, "Database error!")
-                
-                
         elif command == 'invite':
             await reply_message(message,"`Click here to invite RP Mastermind:` https://discord.com/api/oauth2/authorize?client_id=691353869841596446&permissions=805432384&scope=bot")
         else:
             pass 
 
     # Experience for posting
-    records = await select_sql("""SELECT Id,CharacterName,Currency,Experience FROM CharacterProfiles WHERE ServerId=%s AND UserId=%s;""",(str(message.guild.id),str(message.author.id)))
-    if not records:
-        return
-    character_list = []
-    character_name = []
-    character_currency = []
-    experience = [] 
-    for row in records:
-        character_list.append(row[0])
-        character_name.append(row[1])
-        character_currency.append(row[2])
-        experience.append(row[3])
-    lucky_char = random.randint(0,len(character_list) - 1)
-    new_money = int(character_currency[lucky_char]) + 2
-    new_xp = int(experience[lucky_char]) + 10
-    await log_message("granted " + character_name[lucky_char] + " XP and currency.")
-    result = await commit_sql("""UPDATE CharacterProfiles SET Currency=%s,Experience=%s WHERE Id=%s;""",(str(new_money), str(new_xp), str(character_list[lucky_char])))
+    if not message.content.startswith("=") and not message.guild.id == 264445053596991498:
+        records = await select_sql("""SELECT Id,CharacterName,Currency,Experience,Level FROM CharacterProfiles WHERE ServerId=%s AND UserId=%s;""",(str(message.guild.id),str(message.author.id)))
+        if not records:
+            return
+        character_list = []
+        character_name = []
+        character_currency = []
+        experience = [] 
+        levels = []
+        for row in records:
+            character_list.append(row[0])
+            character_name.append(row[1])
+            character_currency.append(row[2])
+            experience.append(row[3])
+            levels.append(row[4])
+        lucky_char = random.randint(0,len(character_list) - 1)
+        new_money = int(character_currency[lucky_char]) + 2
+        new_xp = int(experience[lucky_char]) + 10
+        await log_message("granted " + character_name[lucky_char] + " XP and currency.")
+        server_id = message.guild.id
+        if new_xp > (guild_settings[server_id]["XPLevelRatio"] * int(levels[lucky_char])):
+            level = int(levels[lucky_char]) + 1
+            records = await select_sql("""SELECT StatPoints FROM CharacterProfiles WHERE Id=%s;""",(str(character_list[lucky_char]),))
+            for row in records:
+                stat_points = int(row[0])
+                
+            available_points = int(level * 10) + stat_points
+            response = "<@" + str(message.author.id) +"> **" + character_name[lucky_char] + "** LEVELED UP TO LEVEL **" + str(level) + "!**\nYou have " + str(available_points) + " stat points to spend!\n\n"
+            total_xp = 0
+            health = level * guild_settings[server_id]["HealthLevelRatio"]
+            stamina = level * guild_settings[server_id]["StaminaLevelRatio"]
+            mana = level * guild_settings[server_id]["ManaLevelRatio"]
+            result = await commit_sql("""UPDATE CharacterProfiles SET Level=%s,Experience=%s,Health=%s,Stamina=%s,Mana=%s,StatPoints=%s WHERE Id=%s;""",(str(level),str(total_xp),str(health), str(stamina), str(mana), str(available_points), str(character_list[lucky_char])))
+            await guild_settings[server_id]["XPChannel"].send(response)
+        else:
+            result = await commit_sql("""UPDATE CharacterProfiles SET Currency=%s,Experience=%s WHERE Id=%s;""",(str(new_money), str(new_xp), str(character_list[lucky_char])))
+            try:
+                await guild_settings[server_id]["XPChannel"].send(">>> granted " + character_name[lucky_char] + " XP and currency.")
+            except:
+                pass
 
-client.run('')
+client.run('TOKEN')
