@@ -1638,7 +1638,7 @@ async def on_message(message):
                 deletions = ["Alts", "ArmamentInventory", "Armaments", "Armory", "BuffSkills", "Buffs",
                              "CharacterArmaments", "CharacterProfiles", "CustomProfiles", "Equipment", "GuildSettings",
                              "Inventory", "MagicSkills", "Melee", "MeleeSkills", "Monsters", "NonPlayerCharacters",
-                             "Quests", "Spells", "UnapprovedCharacterProfiles", "Vendors"]
+                             "Quests", "Spells", "UnapprovedCharacterProfiles", "Vendors","Races","Classes","AltChannels","ActiveChars","Critters","CustomCommands","SummonInventory"]
                 for delete in deletions:
                     await commit_sql("""DELETE FROM """ + delete + """ WHERE ServerId=%s;""",
                                      (str(dm_tracker[message.author.id]["server_id"]),))
@@ -11746,64 +11746,64 @@ async def on_message(message):
                 return
             await reply_message(message, "Loading default data..")
             records = await select_sql(
-                """SELECT SpellName, ManaCost, MinimumLevel, DamageMultiplier, Description, PictureLink FROM Spells WHERE ServerId=%s;""",
-                ('REDACTED',))
+                """SELECT SpellName, ManaCost, MinimumLevel, DamageMultiplier, Description, PictureLink,StatusChange,StatusChangedBy,AllowedClasses FROM Spells WHERE ServerId=%s;""",
+                ('726969282012905484',))
             for row in records:
                 result = await commit_sql(
-                    """INSERT INTO Spells (ServerId, UserId, SpellName, ManaCost, MinimumLevel, DamageMultiplier, Description, PictureLink) VALUES (%s,%s,%s,%s,%s,%s,%s,%s);""",
+                    """INSERT INTO Spells (ServerId, UserId, SpellName, ManaCost, MinimumLevel, DamageMultiplier, Description, PictureLink,StatusChange,StatusChangedBy,AllowedClasses) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s);""",
                     (str(message.guild.id), str(message.author.id), row[0], row[1], str(row[2]), str(row[3]),
-                     str(row[4]), row[5]))
+                     str(row[4]), row[5],row[6],row[7],row[8]))
             records = await select_sql(
-                """SELECT AttackName, StaminaCost, MinimumLevel, DamageMultiplier, Description, PictureLink FROM Melee WHERE ServerId=%s;""",
-                ('REDACTED',))
+                """SELECT AttackName, StaminaCost, MinimumLevel, DamageMultiplier, Description, PictureLink,StatusChange,StatusChangedBy,AllowedClasses FROM Melee WHERE ServerId=%s;""",
+                ('726969282012905484',))
             for row in records:
                 result = await commit_sql(
-                    """INSERT INTO Melee (ServerId, UserId, AttackName, StaminaCost, MinimumLevel, DamageMultiplier, Description, PictureLink) VALUES (%s,%s,%s,%s,%s,%s,%s,%s);""",
+                    """INSERT INTO Melee (ServerId, UserId, AttackName, StaminaCost, MinimumLevel, DamageMultiplier, Description, PictureLink,StatusChange,StatusChangedBy,AllowedClasses) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s);""",
                     (str(message.guild.id), str(message.author.id), row[0], row[1], str(row[2]), str(row[3]),
-                     str(row[4]), row[5]))
+                     str(row[4]), row[5],row[6],row[7],row[8]))
             records = await select_sql(
-                """SELECT EquipmentName, EquipmentDescription, EquipmentCost, MinimumLevel, StatMod, Modifier, PictureLink FROM Equipment WHERE ServerId=%s;""",
-                ('REDACTED',))
+                """SELECT EquipmentName, EquipmentDescription, EquipmentCost, MinimumLevel, StatMod, Modifier, PictureLink,StatusChange,StatusChangedBy,AllowedClasses FROM Equipment WHERE ServerId=%s;""",
+                ('726969282012905484',))
             for row in records:
                 result = await commit_sql(
-                    """INSERT INTO Equipment (ServerId, UserId, EquipmentName, EquipmentDescription, EquipmentCost, MinimumLevel, StatMod, Modifier, PictureLink) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s);""",
+                    """INSERT INTO Equipment (ServerId, UserId, EquipmentName, EquipmentDescription, EquipmentCost, MinimumLevel, StatMod, Modifier, PictureLink,StatusChange,StatusChangedBy,AllowedClasses) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s);""",
                     (str(message.guild.id), str(message.author.id), row[0], row[1], str(row[2]), str(row[3]),
-                     str(row[4]), row[5], row[6]))
+                     str(row[4]), row[5], row[6],row[7],row[8],row[9]))
             records = await select_sql(
-                """SELECT ArmamentName, Description, ArmamentCost, Slot, MinimumLevel, DamageMin, DamageMax, Defense, StatMod, Modifier, PictureLink FROM Armaments WHERE ServerId=%s;""",
-                ('REDACTED',))
+                """SELECT ArmamentName, Description, ArmamentCost, Slot, MinimumLevel, DamageMin, DamageMax, Defense, StatMod, Modifier, PictureLink,StatusChange,StatusChangedBy,AllowedClasses FROM Armaments WHERE ServerId=%s;""",
+                ('726969282012905484',))
             for row in records:
                 result = await commit_sql(
-                    """INSERT INTO Armaments (ServerId, UserId, ArmamentName, Description, ArmamentCost, Slot, MinimumLevel, DamageMin, DamageMax, Defense, StatMod, Modifier, PictureLink) VALUES (%s,%s,%s,%s,%s,%s,%s,%s, %s,%s,%s,%s,%s);""",
+                    """INSERT INTO Armaments (ServerId, UserId, ArmamentName, Description, ArmamentCost, Slot, MinimumLevel, DamageMin, DamageMax, Defense, StatMod, Modifier, PictureLink,StatusChange,StatusChangedBy,AllowedClasses) VALUES (%s,%s,%s,%s,%s,%s,%s,%s, %s,%s,%s,%s,%s,%s);""",
                     (str(message.guild.id), str(message.author.id), row[0], row[1], str(row[2]), str(row[3]),
-                     str(row[4]), row[5], row[6], row[7], row[8], row[9], row[10]))
+                     str(row[4]), row[5], row[6], row[7], row[8], row[9], row[10], row[11],row[12],row[13]))
             records = await select_sql(
                 """SELECT MonsterName, Description, Health, Level, Attack, Defense, MagicAttack, MaxCurrencyDrop, PictureLink FROM Monsters WHERE  ServerId=%s;""",
-                ('REDACTED',))
+                ('726969282012905484',))
             for row in records:
                 result = await commit_sql(
                     """INSERT INTO Monsters (ServerId, UserId, MonsterName, Description, Health, Level, Attack, Defense, MagicAttack, MaxCurrencyDrop, PictureLink) VALUES (%s,%s,%s,%s,%s,%s,%s,%s, %s,%s,%s);""",
                     (str(message.guild.id), str(message.author.id), row[0], row[1], str(row[2]), str(row[3]),
                      str(row[4]), row[5], row[6], row[7], row[8]))
             records = await select_sql(
-                """SELECT BuffName, ManaCost, MinimumLevel, StatMod, Modifier, Description, IFNULL(PictureLink,'None') FROM Buffs WHERE ServerId=%s;""",
-                ('REDACTED',))
+                """SELECT BuffName, ManaCost, MinimumLevel, StatMod, Modifier, Description, IFNULL(PictureLink,'None'),StatusChange,StatusChangedBy,AllowedClasses FROM Buffs WHERE ServerId=%s;""",
+                ('726969282012905484',))
             for row in records:
                 result = await commit_sql(
-                    """INSERT INTO Buffs (ServerId, UserId, BuffName, ManaCost, MinimumLevel, StatMod, Modifier, Description, PictureLink) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s);""",
+                    """INSERT INTO Buffs (ServerId, UserId, BuffName, ManaCost, MinimumLevel, StatMod, Modifier, Description, PictureLink,StatusChange,StatusChangedBy,AllowedClasses) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s);""",
                     (str(message.guild.id), str(message.author.id), str(row[0]), str(row[1]), str(row[2]), str(row[3]),
-                     str(row[4]), str(row[5]), str(row[6])))
-            records = await select_sql("""SELECT Name, Description, AttackBonus, DefenseBonus, MagicAttackBonus,HealthBonus,ManaBonus,StaminaBonus,IntellectBonus,CharismaBonus,AgilityBonus,PictureLink FROM Races WHERE ServerId=%s;""",('REDACTED',))
+                     str(row[4]), str(row[5]), str(row[6]),row[7],row[8],row[9]))
+            records = await select_sql("""SELECT Name, Description, AttackBonus, DefenseBonus, MagicAttackBonus,HealthBonus,ManaBonus,StaminaBonus,IntellectBonus,CharismaBonus,AgilityBonus,PictureLink FROM Races WHERE ServerId=%s;""",('726969282012905484',))
             
             for row in records:
                 await log_message("Tuple: " + str(row))
                 result = await commit_sql("""INSERT INTO Races (ServerId, UserId, Name, Description, AttackBonus, DefenseBonus, MagicAttackBonus,HealthBonus,ManaBonus,StaminaBonus,IntellectBonus,CharismaBonus,AgilityBonus,PictureLink) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s);""",(str(message.guild.id),str(message.author.id), str(row[0]),str(row[1]), str(row[2]), str(row[3]), str(row[4]), str(row[5]), str(row[6]), str(row[7]), str(row[8]), str(row[9]), str(row[10]),str(row[11])))
-            records = await select_sql("""SELECT Name, Description, PictureLink FROM Classes WHERE ServerId=%s;""",('REDACTED',))
+            records = await select_sql("""SELECT Name, Description, PictureLink FROM Classes WHERE ServerId=%s;""",('726969282012905484',))
             for row in records:
                 result = await commit_sql("""INSERT INTO Classes (ServerId, UserId, Name, Description, PictureLink) VALUES (%s, %s, %s, %s, %s);""",(str(message.guild.id),str(message.author.id),str(row[0]),str(row[1]),str(row[2])))
             records = await select_sql(
                 """SELECT CritterName, Description, Health, Level, Attack, Defense, MagicAttack, MaxCurrencyDrop, PictureLink FROM Critters WHERE  ServerId=%s;""",
-                ('REDACTED',))
+                ('726969282012905484',))
             for row in records:
                 result = await commit_sql(
                     """INSERT INTO Critters (ServerId, UserId, CritterName, Description, Health, Level, Attack, Defense, MagicAttack, MaxCurrencyDrop, PictureLink) VALUES (%s,%s,%s,%s,%s,%s,%s,%s, %s,%s,%s);""",
