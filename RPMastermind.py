@@ -44,14 +44,14 @@ critter_spawn = {}
 allowed_ids = {}
 active_chars = {}
 new_startup = True
-connection = mysql.connector.connect(host='localhost', database='CharaTron', user='REDACTED', password='REDACTED')
+connection = mysql.connector.connect(host='localhost', database='CharaTron', user='REDACTED', password='RECACTED')
 
 
 def reconnect_db():
     global connection
     if connection is None or not connection.is_connected():
         connection = mysql.connector.connect(host='localhost', database='CharaTron', user='REDACTED',
-                                             password='REDACTED')
+                                             password='RECACTED')
     return connection
 
 
@@ -1449,7 +1449,7 @@ async def on_message(message):
                 dm_tracker[message.author.id]["parameters"] = dm_tracker[message.author.id]["fielddict"][0]
             if field_list[current_field + 1] == 'Race':
                 dm_tracker[message.author.id]["parameters2"] = field_dict[current_field + 1]
-
+            dm_tracker[message.author.id]["fielddict"][current_field] = message.content
             dm_tracker[message.author.id]["currentfield"] = current_field + 1
                 #                embed = discord.Embed(title=field_list[current_field + 1],description=current_command)
                 #                embed.add_field(name="Next field:",value=dm_tracker[message.author.id]["fieldlist"][current_field + 1])
@@ -11876,7 +11876,7 @@ async def on_message(message):
         elif command == 'listsetup':
             server_id = message.guild.id
             records = await select_sql(
-                """SELECT ServerId,IFNULL(AdminRole,'0'),IFNULL(GameModeratorRole,'0'),IFNULL(NPCRole,'0'),IFNULL(PlayerRole,'0'),IFNULL(GuildBankBalance,'0'),IFNULL(StartingHealth,'0'),IFNULL(StartingMana,'0'),IFNULL(StartingStamina,'0'),IFNULL(StartingAttack,'0'),IFNULL(StartingDefense,'0'),IFNULL(StartingMagicAttack,'0'),IFNULL(StartingAgility,'0'),IFNULL(StartingIntellect,'0'),IFNULL(StartingCharisma,'0'),IFNULL(HealthLevelAdd,'0'),IFNULL(ManaLevelAdd,'0'),IFNULL(StaminaLevelAdd,'0'),IFNULL(XPLevelRatio,'0'),IFNULL(HealthAutoHeal,'0'),IFNULL(ManaAutoHeal,'0'),IFNULL(StaminaAutoHeal,'0'),IFNULL(AutoCharApproval,'0'),IFNULL(StatPointsPerLevel,'0'),IFNULL(CritterChannel,'0') FROM GuildSettings WHERE ServerId=%s;""",
+                """SELECT ServerId,IFNULL(AdminRole,'0'),IFNULL(GameModeratorRole,'0'),IFNULL(NPCRole,'0'),IFNULL(PlayerRole,'0'),IFNULL(GuildBankBalance,'0'),IFNULL(StartingHealth,'0'),IFNULL(StartingMana,'0'),IFNULL(StartingStamina,'0'),IFNULL(StartingAttack,'0'),IFNULL(StartingDefense,'0'),IFNULL(StartingMagicAttack,'0'),IFNULL(StartingAgility,'0'),IFNULL(StartingIntellect,'0'),IFNULL(StartingCharisma,'0'),IFNULL(HealthLevelAdd,'0'),IFNULL(ManaLevelAdd,'0'),IFNULL(StaminaLevelAdd,'0'),IFNULL(XPLevelRatio,'0'),IFNULL(HealthAutoHeal,'0'),IFNULL(ManaAutoHeal,'0'),IFNULL(StaminaAutoHeal,'0'),IFNULL(AutoCharApproval,'0'),IFNULL(StatPointsPerLevel,'0'),IFNULL(CritterChannelId,'0') FROM GuildSettings WHERE ServerId=%s;""",
                 (str(message.guild.id),))
             if not records:
                 await reply_message(message, "Not all settings found. Please run =newsetup to initialize all settings.")
@@ -12247,7 +12247,7 @@ async def on_message(message):
                 return
             critter_spawn[message.guild.id] = random.randint(1,50)
             records = await select_sql(
-                """SELECT IFNULL(Description,'None'),Health,Level,Attack,Defense,MagicAttack,IFNULL(PictureLink,' '),MaxCurrencyDrop,CritterName FROM Critters WHERE ServerId=%s ORDER BY RAND ( ) LIMIT 1;""",
+                """SELECT IFNULL(Description,'None'),Health,Level,Attack,Defense,MagicAttack,IFNULL(PictureLink,' '),IFNULL(MaxCurrencyDrop,20),CritterName FROM Critters WHERE ServerId=%s ORDER BY RAND ( ) LIMIT 1;""",
                 (str(message.guild.id),))
             if not records:
                 return  
