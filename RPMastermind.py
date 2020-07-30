@@ -44,14 +44,14 @@ critter_spawn = {}
 allowed_ids = {}
 active_chars = {}
 new_startup = True
-connection = mysql.connector.connect(host='localhost', database='CharaTron', user='REDACTED', password='RECACTED')
+connection = mysql.connector.connect(host='localhost', database='CharaTron', user='REDACTED', password='REDACTED')
 
 
 def reconnect_db():
     global connection
     if connection is None or not connection.is_connected():
         connection = mysql.connector.connect(host='localhost', database='CharaTron', user='REDACTED',
-                                             password='RECACTED')
+                                             password='REDACTED')
     return connection
 
 
@@ -313,7 +313,7 @@ async def ai_castspar(message):
                         "StaminaLevelAdd"]
                     mana = fallen_chars[server_id][user_id]["MaxMana"] + guild_settings[server_id]["ManaLevelAdd"]
                     result = await commit_sql(
-                        """UPDATE CharacterProfiles SET Level=%s,Experience=%s,Health=%s,Stamina=%s,Mana=%s WHERE Id=%s;""",
+                        """UPDATE CharacterProfiles SET Level=%s,Experience=%s,Health=%s,Stamina=%s,Mana=%s,StatPoints=%s WHERE Id=%s;""",
                         (str(fallen_chars[server_id][target_id]["Level"] + 1), str(total_xp), str(health), str(stamina),
                          str(mana), str(available_points), str(fallen_chars[server_id][target_id]["CharId"])))
             mass_spar_event[server_id] = False
@@ -1112,9 +1112,9 @@ async def on_guild_join(guild):
     critter_spawn[guild.id] = 10
 
     result = await commit_sql(
-        """INSERT INTO GuildSettings (ServerId,GuildBankBalance,StartingHealth,StartingMana,StartingStamina,StartingAttack,StartingDefense,StartingMagicAttack,StartingAgility,StartingIntellect,StartingCharisma,HealthLevelAdd,ManaLevelAdd,StaminaLevelAdd,XPLevelRatio,HealthAutoHeal,ManaAutoHeal,StaminaAutoHeal,XPChannelId) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s, %s);""",
+        """INSERT INTO GuildSettings (ServerId,GuildBankBalance,StartingHealth,StartingMana,StartingStamina,StartingAttack,StartingDefense,StartingMagicAttack,StartingAgility,StartingIntellect,StartingCharisma,HealthLevelAdd,ManaLevelAdd,StaminaLevelAdd,XPLevelRatio,HealthAutoHeal,ManaAutoHeal,StaminaAutoHeal,XPChannelId,StatPointsLevel) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s, %s, %s);""",
         (str(guild.id), "1000000", "200", "100", "100", "10", "5", "10", "10", "10", "10", "200", "100", "100", "200",
-         "0.05", "0.1", "0.1", "0"))
+         "0.05", "0.1", "0.1", "0", "10"))
     guild_settings[guild.id]["StartingHealth"] = 200
     guild_settings[guild.id]["StartingMana"] = 100
 
@@ -1290,7 +1290,7 @@ async def on_message(message):
 
         try:
             allowed_ids[message.author.id][0]
-            await log_message(str(allowed_ids[mesasge.author.id][0]))
+            await log_message(str(allowed_ids[messasge.author.id][0]))
             if allowed_ids[message.author.id][0] is not None:
                 allowed_to_continue = False
                 if message.content == '0' or message.content == 'end':
@@ -3731,7 +3731,7 @@ async def on_message(message):
                             mana = server_party_chars[server_id][user_id]["MaxMana"] + guild_settings[server_id][
                                 "ManaLevelAdd"]
                             result = await commit_sql(
-                                """UPDATE CharacterProfiles SET Level=%s,Experience=%s,Health=%s,Stamina=%s,Mana=%s WHERE Id=%s;""",
+                                """UPDATE CharacterProfiles SET Level=%s,Experience=%s,Health=%s,Stamina=%s,Mana=%s,StatPoints=%s WHERE Id=%s;""",
                                 (str(server_party_chars[server_id][user]["Level"]), str(total_xp), str(health),
                                  str(stamina), str(mana), str(available_points),
                                  str(server_party_chars[server_id][user]["CharId"])))
@@ -5378,7 +5378,7 @@ async def on_message(message):
                 return
             elif current_command == 'editchar':
                 if message.attachments:
-                    field_dict[len(field_dict)] = message.attachments[0].url
+                    field_dict[len(field_dict) - 1] = message.attachments[0].url
                 if dm_tracker[message.author.id]["parameters2"] != dm_tracker[message.author.id]["fielddict"][
                     field_list.index('Race')]:
                     records = await select_sql(
@@ -5547,6 +5547,8 @@ async def on_message(message):
             elif current_command == 'editbuff':
                 if dm_tracker[message.author.id]["fielddict"][-1] == 'end':
                     dm_tracker[message.author.id]["fielddict"].remove('end')
+                if message.attachments:
+                    field_dict[len(field_dict) - 1] = message.attachments[0].url                    
                 result = await update_table(message, "Buffs")
                 if result:
                     await direct_message(message, "Buff edited successfully.")
@@ -5790,7 +5792,7 @@ async def on_message(message):
             fields = ""
             if parsed_string == "":
                 parsed_string = "Main Help"
-            response = "`Welcome to RP Mastermind, the Discord RP Bot Master!`\n\n*Using Help:*\n- Type =info or =help followed by one of these categories to see a list of commands, such as **=info setup.**.\n- To see help for a specific command, type =info command <name>, such as **=info command create**\n- For quick references, use **=cheatsheet** **setup**, **spar**, **player**, **admin**, **gm**, **hunt**, or **encounter**.\n\n**COMMAND CATEGORIES**\n`general`: Not commands, but information on how the bot works.\n`setup`: Commands for getting the bot running.\n`characters`: Commands for managing characters.\n`alts`: Commands for managing Alts.\n`npcs`: Commands for managing NPCs.\n`monsters` Commands for managing monsters.\n`critters`: Commands for managing critters.\n`items`: Commands for managing equipment.\n`encounters`: Commands for managing encounters.\n`melee`: Commands for managing melee attacks.\n`spells`: Commands for managing spells.\n`sparring`: Commands for managing sparring.\n`inventory`: Commands for managing inventory.\n`economy`: Commands for buying, selling and the guild bank.\n`vendors`: Commands for creating, editing and deleting vendors and adding items to them.\n`buffs`: Commands for adding, editing, deleting, and giving and taking away buffs.\n`races`: Commands for managing races.\n`classes`: Commands for managing classes.\n`armaments`: Commands for managing armaments\n`armories`: Commands for managing armories.\n`fun`: Commands for old time RP fun.\n`customcommands`: Commands for creating custom dice responses.\n`credits`: Those who helped develop and test the bot.\n\nMore advanced documentation can be found on the wiki: http://rpmm.wikidot.com/\n\nSupport server: https://discord.gg/3CKdNPx"
+            response = "`Welcome to RP Mastermind, the Discord RP Bot Master!`\n\n*Using Help:*\n- Type =info or =help followed by one of these categories to see a list of commands, such as **=info setup.**.\n- To see help for a specific command, type =info command <name>, such as **=info command create**\n- For quick references, use **=cheatsheet** **setup**, **spar**, **player**, **admin**, **gm**, **hunt**, or **encounter**.\n\n**COMMAND CATEGORIES**\n`general`: Not commands, but information on how the bot works.\n`setup`: Commands for getting the bot running.\n`characters`: Commands for managing characters.\n`alts`: Commands for managing Alts.\n`npcs`: Commands for managing NPCs.\n`monsters` Commands for managing monsters.\n`critters`: Commands for managing critters.\n`items`: Commands for managing equipment.\n`encounters`: Commands for managing encounters.\n`melee`: Commands for managing melee attacks.\n`spells`: Commands for managing spells.\n`sparring`: Commands for managing sparring.\n`inventory`: Commands for managing inventory.\n`economy`: Commands for buying, selling and the guild bank.\n`vendors`: Commands for creating, editing and deleting vendors and adding items to them.\n`buffs`: Commands for adding, editing, deleting, and giving and taking away buffs.\n`races`: Commands for managing races.\n`classes`: Commands for managing classes.\n`armaments`: Commands for managing armaments\n`armories`: Commands for managing armories.\n`fun`: Commands for old time RP fun.\n`customcommands`: Commands for creating custom dice responses.\n`credits`: Those who helped develop and test the bot.\n\nMore advanced documentation can be found on the wiki: http://rpmm.wikidot.com/\n\nSupport server: https://discord.gg/QRWem3w"
             if parsed_string == 'setup':
                 response = "**SETUP COMMANDS**\n\n\n\n`=createroles`,`=setadminrole`,`=newsetup`,`=editsetup`,`=setgmrole`,`=setnpcrole`,`=listroles`,`=addadmin`, `=addnpcuser`,`=addplayer`,`=addgm`,`=deleteadmin`,`=deletenpcuser`,`=deleteplayer`,`=deletegm`,`=resetserver`,`=invite`,`=setxpchannel`,`=setcritterchannel`"
 
@@ -11774,7 +11776,7 @@ async def on_message(message):
                 ('726969282012905484',))
             for row in records:
                 result = await commit_sql(
-                    """INSERT INTO Armaments (ServerId, UserId, ArmamentName, Description, ArmamentCost, Slot, MinimumLevel, DamageMin, DamageMax, Defense, StatMod, Modifier, PictureLink,StatusChange,StatusChangedBy,AllowedClasses) VALUES (%s,%s,%s,%s,%s,%s,%s,%s, %s,%s,%s,%s,%s,%s);""",
+                    """INSERT INTO Armaments (ServerId, UserId, ArmamentName, Description, ArmamentCost, Slot, MinimumLevel, DamageMin, DamageMax, Defense, StatMod, Modifier, PictureLink,StatusChange,StatusChangedBy,AllowedClasses) VALUES (%s,%s,%s,%s,%s,%s,%s,%s, %s,%s,%s,%s,%s,%s,%s,%s);""",
                     (str(message.guild.id), str(message.author.id), row[0], row[1], str(row[2]), str(row[3]),
                      str(row[4]), row[5], row[6], row[7], row[8], row[9], row[10], row[11],row[12],row[13]))
             records = await select_sql(
@@ -12016,7 +12018,7 @@ async def on_message(message):
             dm_tracker[message.author.id]["parameters"] = message.guild.id
 
             records = await select_sql(
-                """SELECT ServerId,GuildBankBalance,StartingHealth,StartingMana,StartingStamina,StartingAttack,StartingDefense,StartingMagicAttack,StartingAgility,StartingIntellect,StartingCharisma,HealthLevelAdd,ManaLevelAdd,StaminaLevelAdd,XPLevelRatio,HealthAutoHeal,ManaAutoHeal,StaminaAutoHeal,StatPointsPerLevel,IFNULL(AutoCharApproval,'0') FROM GuildSettings WHERE ServerId=%s;""",
+                """SELECT ServerId,GuildBankBalance,StartingHealth,StartingMana,StartingStamina,StartingAttack,StartingDefense,StartingMagicAttack,StartingAgility,StartingIntellect,StartingCharisma,HealthLevelAdd,ManaLevelAdd,StaminaLevelAdd,XPLevelRatio,HealthAutoHeal,ManaAutoHeal,StaminaAutoHeal,IFNULL(StatPointsPerLevel,'10'),IFNULL(AutoCharApproval,'0') FROM GuildSettings WHERE ServerId=%s;""",
                 (str(message.guild.id),))
             counter = 0
             await log_message(str(len(dm_tracker[message.author.id]["fieldlist"])))
@@ -12271,7 +12273,7 @@ async def on_message(message):
             await guild_settings[message.guild.id]["CritterChannel"].send("A critter has been sighted! If you'd like to hunt the " + monster_name + " type =hunt!")
             embed = discord.Embed(title="Critter sighted!",
                                   description="A **" + monster_name + "** has appeared in " + str(
-                                    guild_settings[message.guild.id]["XPChannel"].name) + "!")
+                                    guild_settings[message.guild.id]["CritterChannel"].name) + "!")
             if server_monsters[server_id]["PictureLink"].startswith('http'):
                 embed.set_thumbnail(url=server_monsters[server_id]["PictureLink"])
             embed.add_field(name="Critter Level:", value=str(server_monsters[server_id]["Level"]))
