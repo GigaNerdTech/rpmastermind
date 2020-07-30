@@ -191,13 +191,13 @@ async def initialize_dm(author_id):
     except:
         pass
     dm_tracker[author_id] = {}
-    dm_tracker[author_id]["currentcommand"] = " "
-    dm_tracker[author_id]["currentfield"] = 0
+    dm_tracker[author_id]["currentcommand"] = None
+    dm_tracker[author_id]["currentfield"] = None
     dm_tracker[author_id]["fieldlist"] = []
     dm_tracker[author_id]["fielddict"] = []
     dm_tracker[author_id]["server_id"] = 0
     dm_tracker[author_id]["commandchannel"] = 0
-    dm_tracker[author_id]["parameters"] = " "
+    dm_tracker[author_id]["parameters"] = None
     dm_tracker[author_id]["fieldmeans"] = []
 
 
@@ -2624,8 +2624,8 @@ async def on_message(message):
         elif current_command == 'takebuff':
             if current_field == 0:
                 dm_tracker[message.author.id]["fielddict"].append(message.content)
-                menu = await make_menu(message, "BuffSkills", "Buffs", "BuffId", "UserId", "SpellName",
-                                       str(message.author.id))
+                menu = await make_menu(message, "BuffSkills", "Buffs", "BuffId", "CharId", "SpellName",
+                                       str(message.content))
                 if not menu:
                     await direct_message(message, "This character has no buffs!")
                     return
@@ -2660,8 +2660,8 @@ async def on_message(message):
         elif current_command == 'takespell':
             if current_field == 0:
                 dm_tracker[message.author.id]["fielddict"].append(message.content)
-                menu = await make_menu(message, "MagicSkills", "Spells", "SpellId", "UserId", "SpellName",
-                                       str(message.author.id))
+                menu = await make_menu(message, "MagicSkills", "Spells", "SpellId", "CharacterId", "SpellName",
+                                       str(message.content))
                 if not menu:
                     await direct_message(message, "This character has no spells!")
                     return
@@ -2696,8 +2696,8 @@ async def on_message(message):
         elif current_command == 'takeitem':
             if current_field == 0:
                 dm_tracker[message.author.id]["fielddict"].append(message.content)
-                menu = await make_menu(message, "Inventory", "Equipment", "EquipmentId", "UserId", "EquipmentName",
-                                       str(message.author.id))
+                menu = await make_menu(message, "Inventory", "Equipment", "EquipmentId", "CharacterId", "EquipmentName",
+                                       str(message.content))
                 if not menu:
                     await direct_message(message, "This character has no items!")
                     return
@@ -2729,11 +2729,47 @@ async def on_message(message):
                     await direct_message(message, "Database error!")
                 await initialize_dm(message.author.id)
                 return
+        elif current_command == 'takearmament':
+            if current_field == 0:
+                dm_tracker[message.author.id]["fielddict"].append(message.content)
+                menu = await make_menu(message, "ArmamentInventory", "Armaments", "ArmamentId", "CharacterId", "ArmamentName",
+                                       str(message.content))
+                if not menu:
+                    await direct_message(message, "This character has no armaments!")
+                    return
+                response = "Please select an armament to take from the character.\n\n" + menu
+
+                await direct_message(message, response)
+                dm_tracker[message.author.id]["currentfield"] = 1
+                return
+            if current_field == 1:
+                spell_id = message.content
+                char_id = dm_tracker[message.author.id]["fielddict"][0]
+                result = await commit_sql(
+                    """DELETE FROM ArmamentInventory WHERE ServerId=%s AND CharacterId=%s AND ArmamentId=%s;""",
+                    (str(dm_tracker[message.author.id]["server_id"]), char_id, spell_id))
+                char_record = await select_sql("""SELECT CharacterName FROM CharacterProfiles WHERE Id=%s;""",
+                                               (str(char_id),))
+
+                for row in char_record:
+                    char_name = row[0]
+                spell_record = await select_sql("""SELECT ArmamentName FROM Armaments WHERE Id=%s;""", (str(spell_id),))
+                for row in spell_record:
+                    spell_name = row[0]
+
+                if result:
+                    await direct_message(message, char_name + " can no longer use the armament " + spell_name + "!")
+                    await dm_tracker[message.author.id]["commandchannel"].send(
+                        ">>> " + char_name + " can no longer uae the armament " + spell_name + "!")
+                else:
+                    await direct_message(message, "Database error!")
+                await initialize_dm(message.author.id)
+                return                
         elif current_command == 'takesummon':
             if current_field == 0:
                 dm_tracker[message.author.id]["fielddict"].append(message.content)
-                menu = await make_menu(message, "SummonInventory", "Monsters", "MonsterId", "UserId", "MonsterName",
-                                       str(message.author.id))
+                menu = await make_menu(message, "SummonInventory", "Monsters", "MonsterId", "CharacterId", "MonsterName",
+                                       str(message.content))
                 if not menu:
                     await direct_message(message, "This character has no summons!")
                     return
@@ -2881,7 +2917,7 @@ async def on_message(message):
         elif current_command == 'takecurrency':
             if current_field == 0:
                 dm_tracker[message.author.id]["fielddict"].append(message.content)
-                records = await select_sql("""SELECT Currency FROM CharacterProfiles WHERE ServerId=%s;""",
+                records = await select_sql("""SELECT Currency FROM CharacterProfiles WHERE Id=%s;""",
                                            (str(dm_tracker[message.author.id]["server_id"]),))
                 for row in records:
                     balance = int(row[0])
@@ -5848,7 +5884,7 @@ async def on_message(message):
             elif parsed_string == 'races':
                 response = "**RACE COMMANDS**\n\n`=newrace`,`=editrace`,`=deleterace`,`=listraces`,`=listrace`"
             elif parsed_string == 'classes':
-                response = "**CLASS COMMANDS**\n\n`=newclass`,`=editclass`,`=deleteclass`,`=listclasses`,`=listclass`"
+                response = "**CLASS COMMANDS**\n\n`=newclass`,`=editclass`,`=deleteclass`,`=listclasses`,`=listclass`,`=classcanuse`"
             elif parsed_string.startswith('command'):
                 help_command = parsed_string.replace('command ', '')
 
@@ -6027,7 +6063,11 @@ async def on_message(message):
                     role_needed = "Admin"
                     params = "None"
                     example = "=deny"
-
+                elif help_command == 'classcanuse':
+                    command_does = "See all abilities, armaments, and items a class is allowed to use."
+                    role_needed = "None"
+                    params = "Class Name"
+                    example = "=classcanuse Mage"
                 elif help_command == 'pending':
                     command_does = "View an unapproved character's profile application."
                     role_needed = "None"
@@ -7653,7 +7693,32 @@ async def on_message(message):
             if re.search(r"http", picture_link):
                 embed.set_thumbnail(url=picture_link)
             await message.channel.send(embed=embed)
-
+        elif command == 'classcanuse':
+            if not parsed_string:
+                await reply_message(message, "You didn't specify a class to check!")
+                return
+            records = await select_sql("""SELECT Id FROM Classes WHERE Name=%s AND ServerId=%s;""",(str(parsed_string),str(message.guild.id)))
+            if not records:
+                await reply_message(message, "No class was found by that name!")
+                return
+            for row in records:
+                class_id = row[0]
+                
+            class_tables = ["Equipment","Melee","Spells","Buffs","Armaments"]
+            name_list = ["EquipmentName","AttackName","SpellName","BuffName","ArmamentName"]
+            counter =0 
+            master_list = ""
+            for class_table in class_tables:
+                master_list = master_list + "**" + class_table + "**: "
+                
+                records = await select_sql("SELECT " + name_list[counter] + " FROM " + class_table + " WHERE ServerId=%s AND (AllowedClasses LIKE '%" + parsed_string + "%' OR AllowedClasses='All');", (str(message.guild.id),))
+                for row in records:
+                    master_list = master_list + row[0] + ", "
+                master_list = re.sub(r", $","",master_list)
+                master_list = master_list + "\n"
+                counter = counter + 1
+            await reply_message(message, "CLASS " + parsed_string + " CAN USE THE FOLLOWING:\n\n" + master_list)
+            
 
         elif command == 'givestatpoints':
             if not role_check(guild_settings[message.guild.id]["GameModeratorRole"], message.author):
@@ -9560,7 +9625,27 @@ async def on_message(message):
             await direct_message(message, response)
             await reply_message(message, "Please check your DMs for instructions on how to take an item, <@" + str(
                 message.author.id) + ">.")
+        elif command == 'takearmament':
+            if not role_check(guild_settings[message.guild.id]["GameModeratorRole"], message.author):
+                await reply_message(message, "You must be a member of the GM role to take an armament!")
+                return
 
+            if message.author.id not in dm_tracker.keys():
+                await initialize_dm(message.author.id)
+            dm_tracker[message.author.id]["fieldlist"] = ["Character", "Armament"]
+            dm_tracker[message.author.id]["fieldmeans"] = ["Character", "Item"]
+            dm_tracker[message.author.id]["currentfield"] = 0
+            dm_tracker[message.author.id]["fielddict"] = []
+            dm_tracker[message.author.id]["currentcommand"] = 'takearmament'
+            dm_tracker[message.author.id]["server_id"] = message.guild.id
+            dm_tracker[message.author.id]["commandchannel"] = message.channel
+            dm_tracker[message.author.id]["parameters"] = parsed_string
+            counter = 0
+            menu = await make_simple_menu(message, "CharacterProfiles", "CharacterName")
+            response = "Pick a character to take an item from:\n\nPlease choose a character by selecting the IDs.\n" + menu
+            await direct_message(message, response)
+            await reply_message(message, "Please check your DMs for instructions on how to take an armament, <@" + str(
+                message.author.id) + ">.")
         elif command == 'takesummon':
             if not role_check(guild_settings[message.guild.id]["GameModeratorRole"], message.author):
                 await reply_message(message, "You must be a member of the GM role to take spells!")
@@ -12385,4 +12470,4 @@ async def on_message(message):
                     pass
 
 
-client.run('REDACTED')
+client.run(REDACTED')
